@@ -34,6 +34,13 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+#ifdef LIKWID_PERFMON
+#include <likwid-marker.h>
+#include <typeinfo>
+#else
+#define LIKWID_MARKER_START(_)
+#define LIKWID_MARKER_STOP(_)
+#endif
 
 #include "hipSYCL/common/debug.hpp"
 #include "hipSYCL/runtime/error.hpp"
@@ -114,7 +121,7 @@ void finalize_reduction(SequentialReducer &reducer) {
   reducer.finalize_result();
 }
 
-template <class Function, typename... Reductions>
+template <class KernelNameTraits, class Function, typename... Reductions>
 void reducible_parallel_invocation(Function kernel,
                                    Reductions... reductions) noexcept {
   int max_threads = get_max_num_threads();
@@ -125,6 +132,7 @@ void reducible_parallel_invocation(Function kernel,
 #pragma omp parallel shared(sequential_reducers)
 #endif
   {
+    LIKWID_MARKER_START(typeid(typename KernelNameTraits::name).name());
     auto make_omp_reducers = [&](auto &... seq_reducers) {
       return std::make_tuple(omp_reducer{seq_reducers}...);
     };
@@ -136,6 +144,7 @@ void reducible_parallel_invocation(Function kernel,
     auto sycl_reducers = std::apply(make_sycl_reducers, omp_reducers);
 
     std::apply(kernel, sycl_reducers);
+    LIKWID_MARKER_STOP(typeid(typename KernelNameTraits::name).name());
   }
 
   auto finalize_all = [&](auto &... seq_reducers) {
@@ -260,14 +269,14 @@ void single_task_kernel(Function f) noexcept
   f();
 }
 
-template <int Dim, class Function, typename... Reductions>
+template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
 inline void parallel_for_kernel(Function f,
                                 const sycl::range<Dim> execution_range,
                                 Reductions... reductions) noexcept
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
-  reducible_parallel_invocation([&, f](auto& ... reducers){
+  reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
     iterate_range_omp_for(execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
         sycl::detail::make_item<Dim>(idx, execution_range);
@@ -277,14 +286,14 @@ inline void parallel_for_kernel(Function f,
   }, reductions...);
 }
 
-template <int Dim, class Function, typename... Reductions>
+template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
 inline void parallel_for_kernel_offset(Function f,
                                        const sycl::range<Dim> execution_range,
                                        const sycl::id<Dim> offset,
                                        Reductions... reductions) noexcept {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
-  reducible_parallel_invocation([&, f](auto& ... reducers){
+  reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
     iterate_range_omp_for(offset, execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
         sycl::detail::make_item<Dim>(idx, execution_range, offset);
@@ -294,7 +303,7 @@ inline void parallel_for_kernel_offset(Function f,
   }, reductions...);
 }
 
-template <int Dim, class Function, typename... Reductions>
+template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
 inline void parallel_for_ndrange_kernel(
     Function f, const sycl::range<Dim> num_groups,
     const sycl::range<Dim> local_size, const sycl::id<Dim> offset,
@@ -302,7 +311,7 @@ inline void parallel_for_ndrange_kernel(
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1 - 3 are supported.");
 
-  reducible_parallel_invocation([&, f](auto& ... reducers){
+  reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
     if(num_groups.size() == 0 || local_size.size() == 0)
       return;
 
@@ -353,7 +362,7 @@ inline void parallel_for_ndrange_kernel(
   }, reductions...);
 }
 
-template <int Dim, class Function, typename... Reductions>
+template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
 inline void parallel_for_workgroup(Function f,
                                    const sycl::range<Dim> num_groups,
                                    const sycl::range<Dim> local_size,
@@ -362,7 +371,7 @@ inline void parallel_for_workgroup(Function f,
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
-  reducible_parallel_invocation(
+  reducible_parallel_invocation<KernelNameTraits>(
       [&, f, num_groups, local_size](auto &... reducers) {
 
         sycl::detail::host_local_memory::request_from_threadprivate_pool(
@@ -379,7 +388,7 @@ inline void parallel_for_workgroup(Function f,
       reductions...);
 }
 
-template <class HierarchicalDecomposition,
+template <class KernelNameTraits, class HierarchicalDecomposition,
           class Function, int dimensions, typename... Reductions>
 inline void parallel_region(Function f,
                             const sycl::range<dimensions> num_groups,
@@ -390,7 +399,7 @@ inline void parallel_region(Function f,
   static_assert(dimensions > 0 && dimensions <= 3,
                 "Only dimensions 1,2,3 are supported");
 
-  reducible_parallel_invocation(
+  reducible_parallel_invocation<KernelNameTraits>(
       [&, f, num_groups, group_size](auto &... reducers) {
 
         sycl::detail::host_local_memory::request_from_threadprivate_pool(
@@ -526,20 +535,20 @@ public:
       } else if constexpr (type == rt::kernel_type::basic_parallel_for) {
 
         if(!is_with_offset) {
-          omp_dispatch::parallel_for_kernel(k, global_range, reductions...);
+          omp_dispatch::parallel_for_kernel<KernelNameTraits>(k, global_range, reductions...);
         } else {
-          omp_dispatch::parallel_for_kernel_offset(k, global_range, offset, reductions...);
+          omp_dispatch::parallel_for_kernel_offset<KernelNameTraits>(k, global_range, offset, reductions...);
         }
 
       } else if constexpr (type == rt::kernel_type::ndrange_parallel_for) {
 
-        omp_dispatch::parallel_for_ndrange_kernel(
+        omp_dispatch::parallel_for_ndrange_kernel<KernelNameTraits>(
             k, get_grid_range(), local_range, offset, dynamic_local_memory,
             reductions...);
 
       } else if constexpr (type == rt::kernel_type::hierarchical_parallel_for) {
 
-        omp_dispatch::parallel_for_workgroup(k, get_grid_range(), local_range,
+        omp_dispatch::parallel_for_workgroup<KernelNameTraits>(k, get_grid_range(), local_range,
                                              dynamic_local_memory, reductions...);
       } else if constexpr( type == rt::kernel_type::scoped_parallel_for) {
 
@@ -556,7 +565,7 @@ public:
               decltype(omp_dispatch::determine_hierarchical_decomposition<
                        Dim, 64>());
 
-          omp_dispatch::parallel_region<decomposition_type>(
+          omp_dispatch::parallel_region<KernelNameTraits, decomposition_type>(
               k, get_grid_range(), local_range, dynamic_local_memory,
               reductions...);
         } else if(local_range_is_divisible_by(32)) {
@@ -564,7 +573,7 @@ public:
               decltype(omp_dispatch::determine_hierarchical_decomposition<
                        Dim, 32>());
 
-          omp_dispatch::parallel_region<decomposition_type>(
+          omp_dispatch::parallel_region<KernelNameTraits, decomposition_type>(
               k, get_grid_range(), local_range, dynamic_local_memory,
               reductions...);
         } else if(local_range_is_divisible_by(16)) {
@@ -572,7 +581,7 @@ public:
               decltype(omp_dispatch::determine_hierarchical_decomposition<
                        Dim, 16>());
 
-          omp_dispatch::parallel_region<decomposition_type>(
+          omp_dispatch::parallel_region<KernelNameTraits, decomposition_type>(
               k, get_grid_range(), local_range, dynamic_local_memory,
               reductions...);
         } else if(local_range_is_divisible_by(8)) {
@@ -580,7 +589,7 @@ public:
               decltype(omp_dispatch::determine_hierarchical_decomposition<Dim,
                                                                           8>());
 
-          omp_dispatch::parallel_region<decomposition_type>(
+          omp_dispatch::parallel_region<KernelNameTraits, decomposition_type>(
               k, get_grid_range(), local_range, dynamic_local_memory,
               reductions...);
         } else {
@@ -588,7 +597,7 @@ public:
               decltype(omp_dispatch::determine_hierarchical_decomposition<Dim,
                                                                           1>());
 
-          omp_dispatch::parallel_region<decomposition_type>(
+          omp_dispatch::parallel_region<KernelNameTraits, decomposition_type>(
               k, get_grid_range(), local_range, dynamic_local_memory,
               reductions...);
         }
