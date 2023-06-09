@@ -262,11 +262,13 @@ inline void iterate_nd_range_omp(Function f, const sycl::id<Dim> &&group_id, con
 }
 #endif
 
-template<class Function>
+template<class KernelNameTraits, class Function>
 inline
 void single_task_kernel(Function f) noexcept
 {
+  LIKWID_MARKER_START(typeid(typename KernelNameTraits::name).name());
   f();
+  LIKWID_MARKER_STOP(typeid(typename KernelNameTraits::name).name());
 }
 
 template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
@@ -530,7 +532,7 @@ public:
 
       if constexpr(type == rt::kernel_type::single_task){
 
-        omp_dispatch::single_task_kernel(k);
+        omp_dispatch::single_task_kernel<KernelNameTraits>(k);
 
       } else if constexpr (type == rt::kernel_type::basic_parallel_for) {
 
