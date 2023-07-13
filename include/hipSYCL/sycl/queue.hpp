@@ -50,6 +50,7 @@
 #include "handler.hpp"
 #include "info/info.hpp"
 #include "detail/function_set.hpp"
+#include "ext/performance.hpp"
 
 #include <cstddef>
 #include <exception>
@@ -100,7 +101,6 @@ struct hipSYCL_coarse_grained_events : public detail::cg_property {};
 
 }
 
-
 namespace property::queue {
 
 class in_order : public detail::queue_property
@@ -117,6 +117,13 @@ struct hipSYCL_priority : public detail::queue_property {
   : priority{queue_execution_priority} {}
 
   int priority;
+};
+
+struct hipSYCL_instrumentation : public detail::queue_property {
+  hipSYCL_instrumentation(std::shared_ptr<ext::performance_tool_api> instrumenter)
+  : instrumentation{std::move(instrumenter)} {}
+
+  std::shared_ptr<ext::performance_tool_api> instrumentation;
 };
 
 }
@@ -973,6 +980,11 @@ private:
     if(this->has_property<property::queue::hipSYCL_coarse_grained_events>()){
       _default_hints.add_hint(
           rt::make_execution_hint<rt::hints::coarse_grained_synchronization>());
+    }
+    if (this->has_property<property::queue::hipSYCL_instrumentation>()) {
+      _default_hints.add_hint(
+              rt::make_execution_hint<rt::hints::performance_tool_api>(
+                      this->get_property<property::queue::hipSYCL_instrumentation>().instrumentation));
     }
 
     _is_in_order = this->has_property<property::queue::in_order>();

@@ -34,13 +34,6 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
-#ifdef LIKWID_PERFMON
-#include <likwid-marker.h>
-#include <typeinfo>
-#else
-#define LIKWID_MARKER_START(_)
-#define LIKWID_MARKER_STOP(_)
-#endif
 
 #include "hipSYCL/common/debug.hpp"
 #include "hipSYCL/runtime/error.hpp"
@@ -71,6 +64,43 @@
 namespace hipsycl {
 namespace glue {
 namespace omp_dispatch {
+
+class performance_api_guard : public ext::performance_tool_api {
+public:
+    explicit performance_api_guard(rt::dag_node *node) {
+        if (node->get_execution_hints().has_hint<rt::hints::performance_tool_api>()) {
+            _performance_api = node->get_execution_hints().get_hint<rt::hints::performance_tool_api>()->get_performance_tool();
+            _enable = _performance_api != nullptr;
+        }
+    }
+
+    virtual void kernel_start(std::type_info const& kernel_type_info) override {
+        if (_enable) {
+            _performance_api->kernel_start(kernel_type_info);
+        }
+    }
+
+    virtual void kernel_end(std::type_info const& kernel_type_info) override {
+        if (_enable) {
+            _performance_api->kernel_end(kernel_type_info);
+        }
+    }
+
+    virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
+        if (_enable) {
+            _performance_api->omp_thread_start(kernel_type_info);
+        }
+    }
+
+    virtual void omp_thread_end(std::type_info const& kernel_type_info) override {
+        if (_enable) {
+            _performance_api->omp_thread_end(kernel_type_info);
+        }
+    }
+private:
+    std::shared_ptr<ext::performance_tool_api> _performance_api = nullptr;
+    bool _enable = false;
+};
 
 inline int get_my_thread_id() {
 #ifdef _OPENMP
@@ -132,7 +162,6 @@ void reducible_parallel_invocation(Function kernel,
 #pragma omp parallel shared(sequential_reducers)
 #endif
   {
-    LIKWID_MARKER_START(typeid(typename KernelNameTraits::name).name());
     auto make_omp_reducers = [&](auto &... seq_reducers) {
       return std::make_tuple(omp_reducer{seq_reducers}...);
     };
@@ -144,7 +173,6 @@ void reducible_parallel_invocation(Function kernel,
     auto sycl_reducers = std::apply(make_sycl_reducers, omp_reducers);
 
     std::apply(kernel, sycl_reducers);
-    LIKWID_MARKER_STOP(typeid(typename KernelNameTraits::name).name());
   }
 
   auto finalize_all = [&](auto &... seq_reducers) {
@@ -266,25 +294,26 @@ template<class KernelNameTraits, class Function>
 inline
 void single_task_kernel(Function f) noexcept
 {
-  LIKWID_MARKER_START(typeid(typename KernelNameTraits::name).name());
   f();
-  LIKWID_MARKER_STOP(typeid(typename KernelNameTraits::name).name());
 }
 
 template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
 inline void parallel_for_kernel(Function f,
                                 const sycl::range<Dim> execution_range,
+                                performance_api_guard& perf_api_guard,
                                 Reductions... reductions) noexcept
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
   reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
+    perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
     iterate_range_omp_for(execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
         sycl::detail::make_item<Dim>(idx, execution_range);
 
       f(this_item, reducers...);
     });
+    perf_api_guard.omp_thread_end(typeid(KernelNameTraits));
   }, reductions...);
 }
 
@@ -292,16 +321,19 @@ template <class KernelNameTraits, int Dim, class Function, typename... Reduction
 inline void parallel_for_kernel_offset(Function f,
                                        const sycl::range<Dim> execution_range,
                                        const sycl::id<Dim> offset,
+                                       performance_api_guard& perf_api_guard,
                                        Reductions... reductions) noexcept {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
   reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
+    perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
     iterate_range_omp_for(offset, execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
         sycl::detail::make_item<Dim>(idx, execution_range, offset);
 
       f(this_item, reducers...);
     });
+    perf_api_guard.omp_thread_end(typeid(KernelNameTraits));
   }, reductions...);
 }
 
@@ -530,6 +562,9 @@ public:
         return global_range / local_range;
       };
 
+      omp_dispatch::performance_api_guard perf_api_guard(node);
+      perf_api_guard.kernel_start(typeid(KernelNameTraits));
+
       if constexpr(type == rt::kernel_type::single_task){
 
         omp_dispatch::single_task_kernel<KernelNameTraits>(k);
@@ -537,9 +572,9 @@ public:
       } else if constexpr (type == rt::kernel_type::basic_parallel_for) {
 
         if(!is_with_offset) {
-          omp_dispatch::parallel_for_kernel<KernelNameTraits>(k, global_range, reductions...);
+          omp_dispatch::parallel_for_kernel<KernelNameTraits>(k, global_range, perf_api_guard, reductions...);
         } else {
-          omp_dispatch::parallel_for_kernel_offset<KernelNameTraits>(k, global_range, offset, reductions...);
+          omp_dispatch::parallel_for_kernel_offset<KernelNameTraits>(k, global_range, offset, perf_api_guard, reductions...);
         }
 
       } else if constexpr (type == rt::kernel_type::ndrange_parallel_for) {
@@ -616,6 +651,7 @@ public:
         assert(false && "Unsupported kernel type");
       }
 
+      perf_api_guard.kernel_end(typeid(KernelNameTraits));
     };
   }
 

@@ -34,6 +34,7 @@
 
 #include "device_id.hpp"
 #include "util.hpp"
+#include "hipSYCL/sycl/ext/performance.hpp"
 
 namespace hipsycl {
 namespace rt {
@@ -56,7 +57,9 @@ enum class execution_hint_type
 
   request_instrumentation_submission_timestamp,
   request_instrumentation_start_timestamp,
-  request_instrumentation_finish_timestamp
+  request_instrumentation_finish_timestamp,
+
+  performance_tool_api
 };
 
 class execution_hint
@@ -209,6 +212,20 @@ public:
   request_instrumentation_finish_timestamp()
       : execution_hint{execution_hint_type::
                            request_instrumentation_finish_timestamp} {}
+};
+
+class performance_tool_api : public execution_hint {
+public:
+  static constexpr execution_hint_type type = execution_hint_type::performance_tool_api;
+
+  performance_tool_api(std::shared_ptr<ext::performance_tool_api> performance_tool)
+  : execution_hint{type}, _ptool{std::move(performance_tool)} {}
+
+  std::shared_ptr<ext::performance_tool_api> get_performance_tool() {
+    return _ptool;
+  }
+private:
+  std::shared_ptr<ext::performance_tool_api> _ptool;
 };
 
 } // hints
