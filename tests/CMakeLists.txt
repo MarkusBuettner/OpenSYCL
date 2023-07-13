@@ -101,3 +101,4 @@ target_link_libraries(rt_tests PRIVATE ${Boost_LIBRARIES} Threads::Threads)
 add_sycl_to_target(TARGET rt_tests)
 
 add_subdirectory(compiler)
+add_subdirectory(performance_tools)
