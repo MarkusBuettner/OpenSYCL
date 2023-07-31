@@ -54,19 +54,99 @@
 
 #include "sycl/sycl.hpp"
 #include <likwid-marker.h>
+#include <string>
+#include <likwid.h>
+#include <omp.h>
+#include <sched.h>
+#include <unistd.h>
+#include <vector>
+
+class LikwidPerfctrResult {
+public:
+    std::vector<std::vector<double>> results;
+    std::vector<std::vector<double>> tmp;
+
+    const int num_threads, num_events;
+
+    LikwidPerfctrResult(int nthreads, int nevents) : results(nthreads, std::vector<double>(nevents)),
+                                                     tmp(nthreads, std::vector<double>(nevents)),
+                                                     num_threads(nthreads), num_events(nevents) {
+    }
+};
 
 class LikwidPerftool : public hipsycl::ext::performance_tool_api {
+    int groupId = -1;
+    char const* event_group;
+    int *hwthreads;
+    LikwidPerfctrResult *results;
 public:
+    LikwidPerftool(char const* event_group) : event_group(event_group) {
+        int nthreads = omp_get_max_threads();
+        std::cout << nthreads << std::endl;
+        hwthreads = new int[nthreads];
+    }
+
+    ~LikwidPerftool() {
+        delete results;
+        delete hwthreads;
+        perfmon_finalize();
+    }
+
+    virtual void init() override {
+        int nthreads = omp_get_max_threads();
+#pragma omp parallel shared(hwthreads)
+        {
+            if (getcpu((unsigned int*) (hwthreads + omp_get_thread_num()), NULL) != 0)
+            {
+                throw std::runtime_error("Cannot get cpu id on thread " + std::to_string(omp_get_thread_num()) + ", errno: " + std::to_string(errno));
+            }
+#pragma omp critical
+            std::cout << "Thread " << omp_get_thread_num() << ": hw thread " << hwthreads[omp_get_thread_num()] << ", tid: " << gettid() << "\n";
+        }
+
+        perfmon_init(nthreads, (int *) hwthreads);
+        groupId = perfmon_addEventSet(event_group);
+        if (perfmon_setupCounters(groupId) < 0)
+        {
+            throw std::runtime_error("Cannot setup hardware counters!");
+        }
+        int nevents = perfmon_getNumberOfEvents(groupId);
+        results = new LikwidPerfctrResult(nthreads, nevents);
+        perfmon_startCounters();
+    }
+
     virtual void kernel_start(std::type_info const& kernel_type_info) override {
     }
     virtual void kernel_end(std::type_info const& kernel_type_info) override {
     }
 
     virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
-        LIKWID_MARKER_START(kernel_type_info.name());
+        int thread_num = omp_get_thread_num();
+#pragma omp critical
+        { std::cout << "start thread " << thread_num << ", hw thread: " << sched_getcpu() << ", tid: " << gettid() << "\n"; }
+        perfmon_readCountersCpu(hwthreads[thread_num]);
+        for (int i = 0; i < results->num_events; i++) {
+            results->tmp[thread_num][i] = perfmon_getLastResult(groupId, i, thread_num);
+        }
     }
     virtual void omp_thread_end(std::type_info const& kernel_type_info) override {
-        LIKWID_MARKER_STOP(kernel_type_info.name());
+        int thread_num = omp_get_thread_num();
+#pragma omp critical
+        { std::cout << "stop thread " << thread_num << ", hw thread: " << sched_getcpu() << ", tid: " << gettid() << "\n"; }
+        perfmon_readCountersCpu(hwthreads[thread_num]);
+        for (int i = 0; i < results->num_events; i++) {
+            results->results[thread_num][i] += perfmon_getLastResult(groupId, i, thread_num);
+        }
+    }
+
+    void print_results() {
+        for (int i = 0; i < results->num_threads; i++) {
+            std::cout << "Results for thread " << i << " (hw thread " << hwthreads[i] << ":\n";
+            for (int j = 0; j < results->num_events; j++) {
+                char *event_name = perfmon_getEventName(groupId, j);
+                std::cout << "Event " << event_name << ": \t\t" << results->results[i][j] << "\n";
+            }
+        }
     }
 };
 
@@ -76,9 +156,9 @@ int main()
 {
     constexpr size_t len = 1024;
 
-    LIKWID_MARKER_INIT;
+    // LIKWID_MARKER_INIT;
 
-    std::shared_ptr<LikwidPerftool> likwid = std::make_shared<LikwidPerftool>();
+    std::shared_ptr<LikwidPerftool> likwid = std::make_shared<LikwidPerftool>("FLOPS_SP");
     sycl::queue q(sycl::property_list{sycl::property::queue::hipSYCL_instrumentation(likwid)});
 
     sycl::buffer<float> a(len);
@@ -110,8 +190,21 @@ int main()
     });
 
     q.wait();
+    q.submit([&](sycl::handler& cg) {
+        auto&& aAcc = a.get_access<sycl::access_mode::read>(cg);
+        auto&& bAcc = b.get_access<sycl::access_mode::read>(cg);
+        auto&& cAcc = c.get_access<sycl::access_mode::read>(cg);
+        auto&& resultAcc = result.get_access<sycl::access_mode::write>(cg);
 
-    LIKWID_MARKER_CLOSE;
+        cg.parallel_for<Triad>(sycl::range<1>{len}, [=](sycl::id<1> i) {
+            resultAcc[i] = aAcc[i] + bAcc[i] * cAcc[i];
+        });
+    });
+
+    q.wait();
+
+    likwid->print_results();
+    // LIKWID_MARKER_CLOSE;
 
     return 0;
 }

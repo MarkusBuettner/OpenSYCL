@@ -35,6 +35,12 @@ namespace hipsycl::ext {
     class performance_tool_api {
     public:
         /**
+        /**
+         * This function is called during queue construction.
+         */
+        virtual void init() = 0;
+
+        /**
          * This function is called once when the kernel is launched, before any parallelism starts
          * (similar to SYCL event::command_start).
          */

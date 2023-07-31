@@ -74,6 +74,10 @@ public:
         }
     }
 
+    virtual void init() override {
+        // init should never be called by the kernel launcher...
+    }
+
     virtual void kernel_start(std::type_info const& kernel_type_info) override {
         if (_enable) {
             _performance_api->kernel_start(kernel_type_info);
@@ -292,9 +296,11 @@ inline void iterate_nd_range_omp(Function f, const sycl::id<Dim> &&group_id, con
 
 template<class KernelNameTraits, class Function>
 inline
-void single_task_kernel(Function f) noexcept
+void single_task_kernel(Function f, performance_api_guard& perf_api_guard) noexcept
 {
+  perf_api_guard.kernel_start(typeid(KernelNameTraits));
   f();
+  perf_api_guard.kernel_end(typeid(KernelNameTraits));
 }
 
 template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
@@ -567,7 +573,7 @@ public:
 
       if constexpr(type == rt::kernel_type::single_task){
 
-        omp_dispatch::single_task_kernel<KernelNameTraits>(k);
+        omp_dispatch::single_task_kernel<KernelNameTraits>(k, perf_api_guard);
 
       } else if constexpr (type == rt::kernel_type::basic_parallel_for) {
 

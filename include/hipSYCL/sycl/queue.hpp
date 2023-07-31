@@ -1015,6 +1015,14 @@ private:
 
     this->_hooks = detail::queue_submission_hooks_ptr{
           new detail::queue_submission_hooks{}};
+
+    if (this->has_property<property::queue::hipSYCL_instrumentation>()) {
+      submit([&](handler& h) {
+        h.hipSYCL_enqueue_custom_operation([&]() {
+          this->get_property<property::queue::hipSYCL_instrumentation>().instrumentation->init();
+        });
+      }).wait();
+    }
   }
 
 
