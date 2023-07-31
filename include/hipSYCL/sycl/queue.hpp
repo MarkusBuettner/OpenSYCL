@@ -1018,7 +1018,7 @@ private:
 
     if (this->has_property<property::queue::hipSYCL_instrumentation>()) {
       submit([&](handler& h) {
-        h.hipSYCL_enqueue_custom_operation([&]() {
+        h.hipSYCL_enqueue_custom_operation([&](auto interop_hdlr) {
           this->get_property<property::queue::hipSYCL_instrumentation>().instrumentation->init();
         });
       }).wait();

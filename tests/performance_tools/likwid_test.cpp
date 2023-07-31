@@ -1,55 +1,33 @@
-// Run executable with `likwid-perfctr -g FLOPS_SP -C S0:0-3 -s 0xD -f -m likwid_test`
+// Run executable with `OMP_NUM_THREADS=4 OMP_PLACES=threads OMP_PROC_BIND=true OMP_DISPLAY_AFFINITY=true likwid_test`
 // Output should look similar:
 //
-//Region N7hipsycl4glue18kernel_name_traitsI5TriadZZ4mainENK3$_0clERNS_4sycl7handlerEEUlNS4_2idILi1EEEE_EE, Group 1: FLOPS_SP
-//+-------------------+------------+------------+------------+------------+
-//|    Region Info    | HWThread 0 | HWThread 2 | HWThread 4 | HWThread 6 |
-//+-------------------+------------+------------+------------+------------+
-//| RDTSC Runtime [s] |   0.000006 |   0.000107 |   0.000024 |   0.000014 |
-//|     call count    |          1 |          1 |          1 |          1 |
-//+-------------------+------------+------------+------------+------------+
-//
-//+----------------------------------+---------+------------+------------+------------+------------+
-//|               Event              | Counter | HWThread 0 | HWThread 2 | HWThread 4 | HWThread 6 |
-//+----------------------------------+---------+------------+------------+------------+------------+
-//|         ACTUAL_CPU_CLOCK         |  FIXC1  |     239107 |     717670 |     181735 |     167102 |
-//|           MAX_CPU_CLOCK          |  FIXC2  |     300783 |     407631 |     257313 |     236376 |
-//|       RETIRED_INSTRUCTIONS       |   PMC0  |       9683 |     528505 |      48679 |      31201 |
-//|        CPU_CLOCKS_UNHALTED       |   PMC1  |      23170 |     363937 |      41593 |      30474 |
-//| RETIRED_SSE_AVX_FLOPS_SINGLE_ALL |   PMC2  |        512 |        512 |        512 |        512 |
-//|               MERGE              |   PMC3  |          0 |          0 |          0 |          0 |
-//+----------------------------------+---------+------------+------------+------------+------------+
-//
-//+---------------------------------------+---------+---------+--------+--------+-------------+
-//|                 Event                 | Counter |   Sum   |   Min  |   Max  |     Avg     |
-//+---------------------------------------+---------+---------+--------+--------+-------------+
-//|         ACTUAL_CPU_CLOCK STAT         |  FIXC1  | 1305614 | 167102 | 717670 | 326403.5000 |
-//|           MAX_CPU_CLOCK STAT          |  FIXC2  | 1202103 | 236376 | 407631 | 300525.7500 |
-//|       RETIRED_INSTRUCTIONS STAT       |   PMC0  |  618068 |   9683 | 528505 |      154517 |
-//|        CPU_CLOCKS_UNHALTED STAT       |   PMC1  |  459174 |  23170 | 363937 | 114793.5000 |
-//| RETIRED_SSE_AVX_FLOPS_SINGLE_ALL STAT |   PMC2  |    2048 |    512 |    512 |         512 |
-//|               MERGE STAT              |   PMC3  |       0 |      0 |      0 |           0 |
-//+---------------------------------------+---------+---------+--------+--------+-------------+
-//
-//+----------------------+--------------+------------+--------------+--------------+
-//|        Metric        |  HWThread 0  | HWThread 2 |  HWThread 4  |  HWThread 6  |
-//+----------------------+--------------+------------+--------------+--------------+
-//|  Runtime (RDTSC) [s] | 6.211720e-06 |     0.0001 | 2.354442e-05 | 1.361569e-05 |
-//| Runtime unhalted [s] |       0.0001 |     0.0003 |       0.0001 |       0.0001 |
-//|      Clock [MHz]     |    1666.2398 |  3690.2525 |    1480.3873 |    1481.7563 |
-//|          CPI         |       2.3929 |     0.6886 |       0.8544 |       0.9767 |
-//|     SP [MFLOP/s]     |      82.4248 |     4.7877 |      21.7461 |      37.6037 |
-//+----------------------+--------------+------------+--------------+--------------+
-//
-//+---------------------------+-----------+--------------+-----------+--------------+
-//|           Metric          |    Sum    |      Min     |    Max    |      Avg     |
-//+---------------------------+-----------+--------------+-----------+--------------+
-//|  Runtime (RDTSC) [s] STAT |    0.0001 | 6.211720e-06 |    0.0001 | 3.584296e-05 |
-//| Runtime unhalted [s] STAT |    0.0006 |       0.0001 |    0.0003 |       0.0002 |
-//|      Clock [MHz] STAT     | 8318.6359 |    1480.3873 | 3690.2525 |    2079.6590 |
-//|          CPI STAT         |    4.9126 |       0.6886 |    2.3929 |       1.2282 |
-//|     SP [MFLOP/s] STAT     |  146.5623 |       4.7877 |   82.4248 |      36.6406 |
-//+---------------------------+-----------+--------------+-----------+--------------+
+//Results for thread 0 (hw thread 1):
+//Event ACTUAL_CPU_CLOCK:                 422688
+//Event MAX_CPU_CLOCK:            632121
+//Event RETIRED_INSTRUCTIONS:             179777
+//Event CPU_CLOCKS_UNHALTED:              125078
+//Event RETIRED_SSE_AVX_FLOPS_SINGLE_ALL:                 1024
+//Event MERGE:            0
+//Results for thread 1 (hw thread 3):
+//Event ACTUAL_CPU_CLOCK:                 614119
+//Event MAX_CPU_CLOCK:            658182
+//Event RETIRED_INSTRUCTIONS:             336703
+//Event CPU_CLOCKS_UNHALTED:              220149
+//Event RETIRED_SSE_AVX_FLOPS_SINGLE_ALL:                 1024
+//Event MERGE:            0
+//Results for thread 2 (hw thread 5):
+//Event ACTUAL_CPU_CLOCK:                 517851
+//Event MAX_CPU_CLOCK:            581742
+//Event RETIRED_INSTRUCTIONS:             326627
+//Event CPU_CLOCKS_UNHALTED:              200616
+//Event RETIRED_SSE_AVX_FLOPS_SINGLE_ALL:                 1024
+//Event MERGE:            0
+//Results for thread 3 (hw thread 7):
+//Event ACTUAL_CPU_CLOCK:                 554137
+//Event MAX_CPU_CLOCK:            629097
+//Event RETIRED_INSTRUCTIONS:             126078
+//Event CPU_CLOCKS_UNHALTED:              189136
+//Event RETIRED_SSE_AVX_FLOPS_SINGLE_ALL:                 1024
 
 
 #include "sycl/sycl.hpp"
@@ -141,7 +119,7 @@ public:
 
     void print_results() {
         for (int i = 0; i < results->num_threads; i++) {
-            std::cout << "Results for thread " << i << " (hw thread " << hwthreads[i] << ":\n";
+            std::cout << "Results for thread " << i << " (hw thread " << hwthreads[i] << "):\n";
             for (int j = 0; j < results->num_events; j++) {
                 char *event_name = perfmon_getEventName(groupId, j);
                 std::cout << "Event " << event_name << ": \t\t" << results->results[i][j] << "\n";
