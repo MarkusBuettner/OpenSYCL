@@ -347,11 +347,12 @@ template <class KernelNameTraits, int Dim, class Function, typename... Reduction
 inline void parallel_for_ndrange_kernel(
     Function f, const sycl::range<Dim> num_groups,
     const sycl::range<Dim> local_size, const sycl::id<Dim> offset,
-    size_t num_local_mem_bytes, Reductions... reductions) noexcept
+    size_t num_local_mem_bytes, performance_api_guard& perf_api_guard, Reductions... reductions) noexcept
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1 - 3 are supported.");
 
   reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
+    perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
     if(num_groups.size() == 0 || local_size.size() == 0)
       return;
 
@@ -398,6 +399,7 @@ inline void parallel_for_ndrange_kernel(
 #endif
 
     sycl::detail::host_local_memory::release();
+    perf_api_guard.omp_thread_end(typeid(KernelNameTraits));
 
   }, reductions...);
 }
@@ -587,7 +589,7 @@ public:
 
         omp_dispatch::parallel_for_ndrange_kernel<KernelNameTraits>(
             k, get_grid_range(), local_range, offset, dynamic_local_memory,
-            reductions...);
+            perf_api_guard, reductions...);
 
       } else if constexpr (type == rt::kernel_type::hierarchical_parallel_for) {
 
