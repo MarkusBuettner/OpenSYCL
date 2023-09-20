@@ -3,9 +3,9 @@ if(NOT CMAKE_VERSION VERSION_LESS 3.12)
   cmake_policy(SET CMP0074 NEW) # Don't complain about using BOOST_ROOT...
 endif()
 
-set(HIPSYCL_VERSION_MAJOR 0)
-set(HIPSYCL_VERSION_MINOR 9)
-set(HIPSYCL_VERSION_PATCH 4)
+set(HIPSYCL_VERSION_MAJOR 23)
+set(HIPSYCL_VERSION_MINOR 10)
+set(HIPSYCL_VERSION_PATCH 0)
 
 project(hipSYCL VERSION ${HIPSYCL_VERSION_MAJOR}.${HIPSYCL_VERSION_MINOR}.${HIPSYCL_VERSION_PATCH})
 
@@ -39,8 +39,11 @@ if(NOT Boost_FOUND)
 endif()
 
 # Check for CUDA/ROCm and clang
+list(INSERT CMAKE_MODULE_PATH 0 "${PROJECT_SOURCE_DIR}/cmake/")
 find_package(CUDA QUIET)
 find_package(HIP QUIET HINTS ${ROCM_PATH} ${ROCM_PATH}/lib/cmake)
+# Check for OpenCL
+find_package(OpenCL QUIET)
 
 # In case HIP is not found via the cmake pkgs we fall back to the legacy rocm discovery:
 if (NOT HIP_FOUND)
@@ -76,23 +79,30 @@ if(WITH_ROCM_BACKEND)
   endif()
 endif()
 
+if(WITH_OPENCL_BACKEND)
+  if(NOT OpenCL_FOUND)
+    message(SEND_ERROR "OpenCL was not found")
+  endif()
+endif()
+
 set(WITH_CUDA_BACKEND ${CUDA_FOUND} CACHE BOOL "Build hipSYCL support for NVIDIA GPUs with CUDA")
 set(WITH_ROCM_BACKEND ${ROCM_FOUND} CACHE BOOL "Build hipSYCL support for AMD GPUs with ROCm")
+set(WITH_OPENCL_BACKEND ${OpenCL_FOUND} CACHE BOOL "Build hipSYCL support for OpenCL SPIR-V devices supporting USM")
 set(WITH_CUDA_NVCXX_ONLY FALSE CACHE BOOL "Whether to target CUDA exclusively with nvc++")
 
 if(APPLE OR WIN32 OR WITH_CUDA_NVCXX_ONLY)
   set(WITH_ACCELERATED_CPU false CACHE BOOL "Build hipSYCL compiler support for accelerating the CPU backend")
   set(WITH_SSCP_COMPILER false CACHE BOOL "Build hipSYCL generic SSCP compiler support")
+  set(WITH_STDPAR_COMPILER false CACHE BOOL "Build hipSYCL C++ standard parallelism support")
 else()
   set(WITH_ACCELERATED_CPU true CACHE BOOL "Build hipSYCL compiler support for accelerating the CPU backend")
   set(WITH_SSCP_COMPILER true CACHE BOOL "Build hipSYCL generic SSCP compiler support")
+  set(WITH_STDPAR_COMPILER true CACHE BOOL "Build hipSYCL C++ standard parallelism compiler support")
 endif()
 set(WITH_CPU_BACKEND true)
 
 if(WITH_CUDA_BACKEND)
   set(DEFAULT_PLATFORM "cuda")
-  find_library(CUDA_DRIVER_LIBRARY cuda HINTS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs ${CUDA_TOOLKIT_ROOT_DIR}/lib/x64 REQUIRED)
-  message(STATUS "Found CUDA driver library: ${CUDA_DRIVER_LIBRARY}")
 
   find_program(NVCXX_COMPILER NAMES nvc++)
 elseif(WITH_ROCM_BACKEND)
@@ -122,11 +132,22 @@ else()
   set(WITH_SSCP_COMPILER false)
 endif()
 
+if(WITH_STDPAR_COMPILER) # sanitize input
+  set(WITH_STDPAR_COMPILER true)
+  set(BUILD_CLANG_PLUGIN true)
+else()
+  set(WITH_STDPAR_COMPILER false)
+endif()
+
 if(WITH_CUDA_BACKEND AND NOT WITH_CUDA_NVCXX_ONLY)
   set(BUILD_CLANG_PLUGIN true)
 endif()
 if(WITH_ROCM_BACKEND)
   set(BUILD_CLANG_PLUGIN true)
+endif()
+if(WITH_OPENCL_BACKEND OR WITH_LEVEL_ZERO_BACKEND)
+  set(BUILD_CLANG_PLUGIN true)
+  set(WITH_SSCP_COMPILER true)
 endif()
 
 if(BUILD_CLANG_PLUGIN)
@@ -201,7 +222,10 @@ if(BUILD_CLANG_PLUGIN)
     message(WARNING "clang version too old (${LLVM_VERSION_MAJOR} < 14) to be used with SSCP compiler, disabling WITH_SSCP_COMPILER")
     set(WITH_SSCP_COMPILER false)
   endif()
-
+  if(${LLVM_VERSION_MAJOR} LESS 14 AND ${WITH_STDPAR_COMPILER})
+    message(WARNING "clang version too old (${LLVM_VERSION_MAJOR} < 14) to be used with C++ standard parallelism support, disabling WITH_STDPAR_COMPILER")
+    set(WITH_STDPAR_COMPILER false)
+  endif()
   message(STATUS "Using clang include directory: ${CLANG_INCLUDE_PATH}")
 endif()
 
@@ -395,14 +419,13 @@ install(DIRECTORY include/hipSYCL/std DESTINATION include/hipSYCL/ )
 install(FILES ${PROJECT_BINARY_DIR}/include/hipSYCL/common/config.hpp DESTINATION include/hipSYCL/common/)
 
 if(NOT WIN32)
-install(PROGRAMS bin/syclcc DESTINATION bin)
 # Windows is case-insensitive, so don't copy to sycl/sycl.hpp as
 # we already have SYCL/sycl.hpp
 install(FILES include/SYCL/sycl.hpp DESTINATION include/sycl/)
-else()
-install(PROGRAMS bin/syclcc-clang DESTINATION bin RENAME syclcc)
 endif()
-install(PROGRAMS bin/syclcc-clang DESTINATION bin)
+install(PROGRAMS bin/acpp DESTINATION bin)
+install(PROGRAMS bin/acpp DESTINATION bin RENAME syclcc)
+install(PROGRAMS bin/acpp DESTINATION bin RENAME syclcc-clang)
 
 
 install(FILES ${SYCLCC_CONFIG_FILE_PATH} DESTINATION ${SYCLCC_CONFIG_FILE_INSTALL_DIR})
@@ -412,7 +435,7 @@ include(GNUInstallDirs)
 
 
 
-# Legacy module
+# Legacy module (hipSYCL)
 
 
 set(HIPSYCL_INSTALL_CMAKE_DIR
@@ -461,7 +484,7 @@ mark_as_advanced(
 )
 
 
-# New package
+# Legacy module (Open SYCL)
 
 set(OPENSYCL_INSTALL_CMAKE_DIR
   "lib/cmake/OpenSYCL" CACHE PATH "Install path for CMake config files")
@@ -507,3 +530,52 @@ install(EXPORT install_exports
 mark_as_advanced(
   OPENSYCL_INSTALL_CMAKE_DIR
 )
+
+# New module
+
+
+set(ADAPTIVECPP_INSTALL_CMAKE_DIR
+  "lib/cmake/AdaptiveCpp" CACHE PATH "Install path for CMake config files")
+
+# Set relative paths for install root in the following variables so that
+# configure_package_config_file will generate paths relative whatever is
+# the future install root
+set(ADAPTIVECPP_INSTALL_COMPILER_DIR bin)
+set(ADAPTIVECPP_INSTALL_LAUNCHER_DIR ${ADAPTIVECPP_INSTALL_CMAKE_DIR})
+set(ADAPTIVECPP_INSTALL_LAUNCHER_RULE_DIR ${ADAPTIVECPP_INSTALL_CMAKE_DIR})
+
+install(PROGRAMS cmake/syclcc-launcher DESTINATION ${ADAPTIVECPP_INSTALL_CMAKE_DIR})
+install(PROGRAMS cmake/syclcc-launch.rule.in DESTINATION ${ADAPTIVECPP_INSTALL_CMAKE_DIR})
+
+write_basic_package_version_file(
+  "${PROJECT_BINARY_DIR}/adaptivecpp-config-version.cmake"
+  VERSION ${hipSYCL_VERSION}
+  COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    ${PROJECT_SOURCE_DIR}/cmake/adaptivecpp-config.cmake.in
+    ${PROJECT_BINARY_DIR}/adaptivecpp-config.cmake
+    INSTALL_DESTINATION ${ADAPTIVECPP_INSTALL_CMAKE_DIR}
+    PATH_VARS
+    ADAPTIVECPP_INSTALL_COMPILER_DIR
+    ADAPTIVECPP_INSTALL_LAUNCHER_DIR
+    ADAPTIVECPP_INSTALL_LAUNCHER_RULE_DIR
+)
+
+install(FILES
+  ${PROJECT_BINARY_DIR}/adaptivecpp-config.cmake
+  ${PROJECT_BINARY_DIR}/adaptivecpp-config-version.cmake
+  DESTINATION ${ADAPTIVECPP_INSTALL_CMAKE_DIR}
+)
+
+install(EXPORT install_exports
+  FILE "adaptivecpp-targets.cmake"
+  NAMESPACE AdaptiveCpp::
+  DESTINATION ${ADAPTIVECPP_INSTALL_CMAKE_DIR}
+)
+
+mark_as_advanced(
+  ADAPTIVECPP_INSTALL_CMAKE_DIR
+)
+

@@ -271,6 +271,10 @@ public:
   rt::runtime* hipSYCL_runtime() const {
     return _requires_runtime.get();
   }
+
+  rt::device_id hipSYCL_device_id() const {
+    return _device_id;
+  }
 private:
   rt::device_id _device_id;
   rt::runtime_keep_alive_token _requires_runtime;
@@ -665,7 +669,7 @@ HIPSYCL_SPECIALIZE_GET_INFO(device, profile)
 { return get_rt_device()->get_profile(); }
 
 HIPSYCL_SPECIALIZE_GET_INFO(device, version) {
-  return "1.2 "+detail::version_string();
+  return get_rt_device()->get_device_arch();
 }
 
 HIPSYCL_SPECIALIZE_GET_INFO(device, opencl_c_version)

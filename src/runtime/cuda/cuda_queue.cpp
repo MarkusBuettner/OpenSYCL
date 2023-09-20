@@ -185,7 +185,7 @@ cuda_queue::cuda_queue(cuda_backend *be, device_id dev, int priority)
   if(priority == 0) {
     err = cudaStreamCreateWithFlags(&_stream, cudaStreamNonBlocking);
   } else {
-    // TODO Clamp priority to priority range allowed by CUDA.
+    // CUDA API will clamp the priority to the range 
     err = cudaStreamCreateWithPriority(&_stream, cudaStreamNonBlocking, priority);
   }
   if (err != cudaSuccess) {
@@ -411,7 +411,8 @@ result cuda_queue::submit_memset(memset_operation &op, dag_node_ptr node) {
 
 /// Causes the queue to wait until an event on another queue has occured.
 /// the other queue must be from the same backend
-result cuda_queue::submit_queue_wait_for(std::shared_ptr<dag_node_event> evt) {
+result cuda_queue::submit_queue_wait_for(dag_node_ptr node) {
+  auto evt = node->get_event();
   assert(dynamic_is<inorder_queue_event<cudaEvent_t>>(evt.get()));
 
   inorder_queue_event<cudaEvent_t> *cuda_evt =
