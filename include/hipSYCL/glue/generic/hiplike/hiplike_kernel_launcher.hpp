@@ -66,6 +66,8 @@
 #include "hipSYCL/glue/kernel_names.hpp"
 #include "hipSYCL/glue/generic/code_object.hpp"
 
+#include "hipSYCL/sycl/ext/performance_guard.hpp"
+
 
 #if defined(HIPSYCL_HIPLIKE_LAUNCHER_ALLOW_DEVICE_CODE)
 
@@ -676,10 +678,15 @@ public:
       // reductions
       if constexpr (type == rt::kernel_type::single_task) {
 
+        hipsycl::ext::performance_api_guard perf_api_guard(node);
+        perf_api_guard.kernel_start(typeid(KernelNameTraits));
+
         __hipsycl_invoke_kernel(
             node, hiplike_dispatch::single_task_kernel<kernel_name_t>,
             kernel_name_t, Kernel, dim3(1, 1, 1), dim3(1, 1, 1),
             dynamic_local_memory, _queue->get_native_type(), k);
+
+        perf_api_guard.kernel_end(typeid(KernelNameTraits));
 
       } else if constexpr (type == rt::kernel_type::custom) {
        
@@ -689,6 +696,9 @@ public:
         k(handle);
 
       } else {
+
+        hipsycl::ext::performance_api_guard perf_api_guard(node);
+        perf_api_guard.kernel_start(typeid(KernelNameTraits));
 
         sycl::range<Dim> grid_range =
             hiplike_dispatch::determine_grid_configuration(
@@ -868,6 +878,8 @@ public:
         hiplike_dispatch::invoke_reducible_kernel(
             reducible_kernel_invoker, reduction_stages,
             _managed_reduction_scratch, _allocator, reductions...);
+
+        perf_api_guard.kernel_end(typeid(KernelNameTraits));
       }
     };
   }

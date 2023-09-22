@@ -61,50 +61,11 @@
 #include "../generic/host/iterate_range.hpp"
 #include "../generic/host/sequential_reducer.hpp"
 
+#include "hipSYCL/sycl/ext/performance_guard.hpp"
+
 namespace hipsycl {
 namespace glue {
 namespace omp_dispatch {
-
-class performance_api_guard : public ext::performance_tool_api {
-public:
-    explicit performance_api_guard(rt::dag_node *node) {
-        if (node->get_execution_hints().has_hint<rt::hints::performance_tool_api>()) {
-            _performance_api = node->get_execution_hints().get_hint<rt::hints::performance_tool_api>()->get_performance_tool();
-            _enable = _performance_api != nullptr;
-        }
-    }
-
-    virtual void init(hipsycl::rt::device_id dev) override {
-        // init should never be called by the kernel launcher...
-    }
-
-    virtual void kernel_start(std::type_info const& kernel_type_info) override {
-        if (_enable) {
-            _performance_api->kernel_start(kernel_type_info);
-        }
-    }
-
-    virtual void kernel_end(std::type_info const& kernel_type_info) override {
-        if (_enable) {
-            _performance_api->kernel_end(kernel_type_info);
-        }
-    }
-
-    virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
-        if (_enable) {
-            _performance_api->omp_thread_start(kernel_type_info);
-        }
-    }
-
-    virtual void omp_thread_end(std::type_info const& kernel_type_info) override {
-        if (_enable) {
-            _performance_api->omp_thread_end(kernel_type_info);
-        }
-    }
-private:
-    std::shared_ptr<ext::performance_tool_api> _performance_api = nullptr;
-    bool _enable = false;
-};
 
 inline int get_my_thread_id() {
 #ifdef _OPENMP
@@ -296,7 +257,7 @@ inline void iterate_nd_range_omp(Function f, const sycl::id<Dim> &&group_id, con
 
 template<class KernelNameTraits, class Function>
 inline
-void single_task_kernel(Function f, performance_api_guard& perf_api_guard) noexcept
+void single_task_kernel(Function f, hipsycl::ext::performance_api_guard& perf_api_guard) noexcept
 {
   perf_api_guard.kernel_start(typeid(KernelNameTraits));
   f();
@@ -306,7 +267,7 @@ void single_task_kernel(Function f, performance_api_guard& perf_api_guard) noexc
 template <class KernelNameTraits, int Dim, class Function, typename... Reductions>
 inline void parallel_for_kernel(Function f,
                                 const sycl::range<Dim> execution_range,
-                                performance_api_guard& perf_api_guard,
+                                hipsycl::ext::performance_api_guard& perf_api_guard,
                                 Reductions... reductions) noexcept
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
@@ -327,7 +288,7 @@ template <class KernelNameTraits, int Dim, class Function, typename... Reduction
 inline void parallel_for_kernel_offset(Function f,
                                        const sycl::range<Dim> execution_range,
                                        const sycl::id<Dim> offset,
-                                       performance_api_guard& perf_api_guard,
+                                       hipsycl::ext::performance_api_guard& perf_api_guard,
                                        Reductions... reductions) noexcept {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
@@ -347,7 +308,7 @@ template <class KernelNameTraits, int Dim, class Function, typename... Reduction
 inline void parallel_for_ndrange_kernel(
     Function f, const sycl::range<Dim> num_groups,
     const sycl::range<Dim> local_size, const sycl::id<Dim> offset,
-    size_t num_local_mem_bytes, performance_api_guard& perf_api_guard, Reductions... reductions) noexcept
+    size_t num_local_mem_bytes, hipsycl::ext::performance_api_guard& perf_api_guard, Reductions... reductions) noexcept
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1 - 3 are supported.");
 
@@ -570,7 +531,7 @@ public:
         return global_range / local_range;
       };
 
-      omp_dispatch::performance_api_guard perf_api_guard(node);
+      hipsycl::ext::performance_api_guard perf_api_guard(node);
       perf_api_guard.kernel_start(typeid(KernelNameTraits));
 
       if constexpr(type == rt::kernel_type::single_task){
