@@ -31,40 +31,45 @@
 
 
 #include "sycl/sycl.hpp"
-#include <likwid-marker.h>
 #include <string>
 #include <likwid.h>
 #include <omp.h>
 #include <sched.h>
 #include <unistd.h>
 #include <vector>
+#include <unordered_map>
+#include <fstream>
 
 class LikwidPerfctrResult {
 public:
     std::vector<std::vector<double>> results;
-    std::vector<std::vector<double>> tmp;
+    std::vector<std::vector<double>> metrics;
 
-    const int num_threads, num_events;
+    const int num_threads, num_events, num_metrics;
 
-    LikwidPerfctrResult(int nthreads, int nevents) : results(nthreads, std::vector<double>(nevents)),
-                                                     tmp(nthreads, std::vector<double>(nevents)),
-                                                     num_threads(nthreads), num_events(nevents) {
+    LikwidPerfctrResult(int nthreads, int nevents, int nmetrics)
+            : results(nthreads, std::vector<double>(nevents)),
+              metrics(nthreads, std::vector<double>(nmetrics)),
+              num_threads(nthreads), num_events(nevents), num_metrics(nmetrics) {
     }
 };
 
 class LikwidPerftool : public hipsycl::ext::performance_tool_api {
-    int groupId = -1;
+    int groupId = -1, nthreads = -1, nevents = -1, nmetrics = -1;
     char const* event_group;
     int *hwthreads;
     LikwidPerfctrResult *results;
+    std::unordered_map<std::type_index, LikwidPerfctrResult> resultsPerGroup;
 public:
     LikwidPerftool(char const* event_group) : event_group(event_group) {
-        int nthreads = omp_get_max_threads();
-        std::cout << nthreads << std::endl;
+        nthreads = omp_get_max_threads();
         hwthreads = new int[nthreads];
     }
 
     ~LikwidPerftool() {
+        print_results();
+        print_group_results();
+
         delete results;
         delete hwthreads;
         perfmon_finalize();
@@ -88,24 +93,21 @@ public:
         {
             throw std::runtime_error("Cannot setup hardware counters!");
         }
-        int nevents = perfmon_getNumberOfEvents(groupId);
-        results = new LikwidPerfctrResult(nthreads, nevents);
+        nevents = perfmon_getNumberOfEvents(groupId);
+        nmetrics = perfmon_getNumberOfMetrics(groupId);
+        results = new LikwidPerfctrResult(nthreads, nevents, nmetrics);
         perfmon_startCounters();
     }
 
     virtual void kernel_start(std::type_info const& kernel_type_info) override {
+        if (groupId >= 0) {
+            resultsPerGroup.try_emplace(kernel_type_info, nthreads, nevents, nmetrics);
+        }
     }
     virtual void kernel_end(std::type_info const& kernel_type_info) override {
     }
 
     virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
-        int thread_num = omp_get_thread_num();
-#pragma omp critical
-        { std::cout << "start thread " << thread_num << ", hw thread: " << sched_getcpu() << ", tid: " << gettid() << "\n"; }
-        perfmon_readCountersCpu(hwthreads[thread_num]);
-        for (int i = 0; i < results->num_events; i++) {
-            results->tmp[thread_num][i] = perfmon_getLastResult(groupId, i, thread_num);
-        }
     }
     virtual void omp_thread_end(std::type_info const& kernel_type_info) override {
         int thread_num = omp_get_thread_num();
@@ -113,7 +115,14 @@ public:
         { std::cout << "stop thread " << thread_num << ", hw thread: " << sched_getcpu() << ", tid: " << gettid() << "\n"; }
         perfmon_readCountersCpu(hwthreads[thread_num]);
         for (int i = 0; i < results->num_events; i++) {
-            results->results[thread_num][i] += perfmon_getLastResult(groupId, i, thread_num);
+            double result = perfmon_getLastResult(groupId, i, thread_num);
+            results->results[thread_num][i] += result;
+            auto& groupData = resultsPerGroup.at(kernel_type_info);
+            groupData.results[thread_num][i] += result;
+        }
+        for (int i = 0; i < nmetrics; i++) {
+            auto& groupData = resultsPerGroup.at(kernel_type_info);
+            groupData.metrics[thread_num][i] += perfmon_getLastMetric(groupId, i, thread_num);
         }
     }
 
@@ -124,7 +133,55 @@ public:
                 char *event_name = perfmon_getEventName(groupId, j);
                 std::cout << "Event " << event_name << ": \t\t" << results->results[i][j] << "\n";
             }
+            for (int j = 0; j < nmetrics; j++) {
+                char *metric_name = perfmon_getMetricName(groupId, j);
+                std::cout << "Metric " << metric_name << ": \t\t" << perfmon_getMetric(groupId, j, i) << "\n";
+            }
         }
+    }
+
+    void print_group_results() {
+        for (auto& grp : resultsPerGroup) {
+            std::cout << "\n Results for group " << grp.first.name() << "\n";
+            for (int j = 0; j < grp.second.num_events; j++) {
+                char *event_name = perfmon_getEventName(groupId, j);
+                std::cout << "Event " << event_name << ": \t\t";
+                for (int i = 0; i < grp.second.num_threads; i++) {
+                    std::cout << grp.second.results[i][j] << "\t";
+                }
+                std::cout << "\n";
+            }
+            for (int j = 0; j < nmetrics; j++) {
+                char *metric_name = perfmon_getMetricName(groupId, j);
+                std::cout << "Metric " << metric_name << ": \t\t";
+                for (int i = 0; i < grp.second.num_threads; i++) {
+                    std::cout << grp.second.metrics[i][j] << "\t";
+                }
+                std::cout << "\n";
+            }
+        }
+    }
+
+    void write_marker_file(const char* filename) {
+        std::ofstream file(filename);
+        file << nthreads << " " << resultsPerGroup.size() << " 1\n";
+	int regionId = 0;
+       	for (auto&& region : resultsPerGroup) {
+            file << regionId << ":" << region.first.name() << "-0\n";
+            regionId++;
+	}
+	regionId = 0;
+	for (auto&& region : resultsPerGroup) {
+            for (int n = 0; n < region.second.num_threads; n++) {
+		file << regionId << " 0 " << n << " 1 "; // TODO: Call count (1), region time?
+		file << region.second.results[n][0] << " " << region.second.results[n].size() - 1; // Is this region time? -> No
+		for (int j = 1; j < region.second.results[n].size(); j++) {
+		    file << " " << region.second.results[n][j];
+		}
+		file << "\n";
+	    }
+	    regionId++;
+	}
     }
 };
 
@@ -167,7 +224,6 @@ int main()
         });
     });
 
-    q.wait();
     q.submit([&](sycl::handler& cg) {
         auto&& aAcc = a.get_access<sycl::access_mode::read>(cg);
         auto&& bAcc = b.get_access<sycl::access_mode::read>(cg);
@@ -177,11 +233,14 @@ int main()
         cg.parallel_for<Triad>(sycl::range<1>{len}, [=](sycl::id<1> i) {
             resultAcc[i] = aAcc[i] + bAcc[i] * cAcc[i];
         });
-    });
+    }).wait();
 
-    q.wait();
+    likwid->write_marker_file("likwid-results.txt");
 
-    likwid->print_results();
+    //q.wait();
+
+    //likwid->print_results();
+    //likwid->print_group_results();
     // LIKWID_MARKER_CLOSE;
 
     return 0;
