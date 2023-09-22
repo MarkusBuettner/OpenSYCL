@@ -70,7 +70,7 @@ public:
         perfmon_finalize();
     }
 
-    virtual void init() override {
+    virtual void init(hipsycl::rt::device_id device_id) override {
         int nthreads = omp_get_max_threads();
 #pragma omp parallel shared(hwthreads)
         {

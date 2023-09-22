@@ -74,7 +74,7 @@ public:
         }
     }
 
-    virtual void init() override {
+    virtual void init(hipsycl::rt::device_id dev) override {
         // init should never be called by the kernel launcher...
     }
 
