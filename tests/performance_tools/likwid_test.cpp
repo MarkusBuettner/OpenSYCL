@@ -39,34 +39,41 @@
 #include <vector>
 #include <unordered_map>
 #include <fstream>
+#include <chrono>
+
+using clock_type = std::chrono::steady_clock;
+using time_point_t = std::chrono::time_point<clock_type>;
 
 class LikwidPerfctrResult {
 public:
     std::vector<std::vector<double>> results;
-    std::vector<std::vector<double>> metrics;
+    std::vector<std::chrono::nanoseconds> times;
+    std::vector<time_point_t> lastStartTime;
+    std::vector<unsigned int> callCounts;
 
     const int num_threads, num_events, num_metrics;
 
     LikwidPerfctrResult(int nthreads, int nevents, int nmetrics)
             : results(nthreads, std::vector<double>(nevents)),
-              metrics(nthreads, std::vector<double>(nmetrics)),
+              times(nthreads), lastStartTime(nthreads), callCounts(nthreads),
               num_threads(nthreads), num_events(nevents), num_metrics(nmetrics) {
     }
 };
 
 class LikwidPerftool : public hipsycl::ext::performance_tool_api {
     int groupId = -1, nthreads = -1, nevents = -1, nmetrics = -1;
-    char const* event_group;
+    char const *event_group;
     int *hwthreads;
     LikwidPerfctrResult *results;
     std::unordered_map<std::type_index, LikwidPerfctrResult> resultsPerGroup;
 public:
-    LikwidPerftool(char const* event_group) : event_group(event_group) {
+    LikwidPerftool(char const *event_group) : event_group(event_group) {
         nthreads = omp_get_max_threads();
         hwthreads = new int[nthreads];
     }
 
     ~LikwidPerftool() {
+        std::cout << "Recorded data: \n";
         print_results();
         print_group_results();
 
@@ -79,18 +86,19 @@ public:
         int nthreads = omp_get_max_threads();
 #pragma omp parallel shared(hwthreads)
         {
-            if (getcpu((unsigned int*) (hwthreads + omp_get_thread_num()), NULL) != 0)
-            {
-                throw std::runtime_error("Cannot get cpu id on thread " + std::to_string(omp_get_thread_num()) + ", errno: " + std::to_string(errno));
+            if (getcpu((unsigned int *) (hwthreads + omp_get_thread_num()), NULL) != 0) {
+                throw std::runtime_error(
+                        "Cannot get cpu id on thread " + std::to_string(omp_get_thread_num()) + ", errno: " +
+                        std::to_string(errno));
             }
 #pragma omp critical
-            std::cout << "Thread " << omp_get_thread_num() << ": hw thread " << hwthreads[omp_get_thread_num()] << ", tid: " << gettid() << "\n";
+            std::cout << "Thread " << omp_get_thread_num() << ": hw thread " << hwthreads[omp_get_thread_num()]
+                      << ", tid: " << gettid() << "\n";
         }
 
         perfmon_init(nthreads, (int *) hwthreads);
         groupId = perfmon_addEventSet(event_group);
-        if (perfmon_setupCounters(groupId) < 0)
-        {
+        if (perfmon_setupCounters(groupId) < 0) {
             throw std::runtime_error("Cannot setup hardware counters!");
         }
         nevents = perfmon_getNumberOfEvents(groupId);
@@ -104,25 +112,25 @@ public:
             resultsPerGroup.try_emplace(kernel_type_info, nthreads, nevents, nmetrics);
         }
     }
+
     virtual void kernel_end(std::type_info const& kernel_type_info) override {
     }
 
     virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
+        resultsPerGroup.at(kernel_type_info).lastStartTime[omp_get_thread_num()] = clock_type::now();
     }
+
     virtual void omp_thread_end(std::type_info const& kernel_type_info) override {
         int thread_num = omp_get_thread_num();
-#pragma omp critical
-        { std::cout << "stop thread " << thread_num << ", hw thread: " << sched_getcpu() << ", tid: " << gettid() << "\n"; }
         perfmon_readCountersCpu(hwthreads[thread_num]);
+        resultsPerGroup.at(kernel_type_info).times[thread_num] +=
+                clock_type::now() - resultsPerGroup.at(kernel_type_info).lastStartTime[thread_num];
+        resultsPerGroup.at(kernel_type_info).callCounts[thread_num]++;
         for (int i = 0; i < results->num_events; i++) {
             double result = perfmon_getLastResult(groupId, i, thread_num);
             results->results[thread_num][i] += result;
             auto& groupData = resultsPerGroup.at(kernel_type_info);
             groupData.results[thread_num][i] += result;
-        }
-        for (int i = 0; i < nmetrics; i++) {
-            auto& groupData = resultsPerGroup.at(kernel_type_info);
-            groupData.metrics[thread_num][i] += perfmon_getLastMetric(groupId, i, thread_num);
         }
     }
 
@@ -141,7 +149,7 @@ public:
     }
 
     void print_group_results() {
-        for (auto& grp : resultsPerGroup) {
+        for (auto& grp: resultsPerGroup) {
             std::cout << "\n Results for group " << grp.first.name() << "\n";
             for (int j = 0; j < grp.second.num_events; j++) {
                 char *event_name = perfmon_getEventName(groupId, j);
@@ -151,47 +159,58 @@ public:
                 }
                 std::cout << "\n";
             }
-            for (int j = 0; j < nmetrics; j++) {
-                char *metric_name = perfmon_getMetricName(groupId, j);
-                std::cout << "Metric " << metric_name << ": \t\t";
-                for (int i = 0; i < grp.second.num_threads; i++) {
-                    std::cout << grp.second.metrics[i][j] << "\t";
-                }
-                std::cout << "\n";
-            }
         }
     }
 
-    void write_marker_file(const char* filename) {
+    void write_marker_file(const char *filename) {
         std::ofstream file(filename);
         file << nthreads << " " << resultsPerGroup.size() << " 1\n";
-	int regionId = 0;
-       	for (auto&& region : resultsPerGroup) {
+        int regionId = 0;
+        for (auto&& region: resultsPerGroup) {
             file << regionId << ":" << region.first.name() << "-0\n";
             regionId++;
-	}
-	regionId = 0;
-	for (auto&& region : resultsPerGroup) {
+        }
+        regionId = 0;
+        for (auto&& region: resultsPerGroup) {
             for (int n = 0; n < region.second.num_threads; n++) {
-		file << regionId << " 0 " << n << " 1 "; // TODO: Call count (1), region time?
-		file << region.second.results[n][0] << " " << region.second.results[n].size() - 1; // Is this region time? -> No
-		for (int j = 1; j < region.second.results[n].size(); j++) {
-		    file << " " << region.second.results[n][j];
-		}
-		file << "\n";
-	    }
-	    regionId++;
-	}
+                file << regionId << " 0 " << n << " " << region.second.callCounts[n]
+                     << " ";
+                file << region.second.times[n].count() * 1e-9 << " " << region.second.results[n].size();
+                for (int j = 0; j < region.second.results[n].size(); j++) {
+                    file << " " << region.second.results[n][j];
+                }
+                file << "\n";
+            }
+            regionId++;
+        }
+    }
+
+    void print_marker_api_results(const char *filename) {
+        perfmon_readMarkerFile(filename);
+        int nregions = perfmon_getNumberOfRegions();
+        for (int i = 0; i < nregions; i++) {
+            std::cout << "Region " << perfmon_getTagOfRegion(i) << ":\n";
+            int nmetrics = perfmon_getMetricsOfRegion(i);
+            int nthreads = perfmon_getThreadsOfRegion(i);
+            for (int j = 0; j < nmetrics; j++) {
+                std::cout << perfmon_getMetricName(groupId, j) << ": ";
+                for (int k = 0; k < nthreads; k++) {
+                    std::cout << perfmon_getMetricOfRegionThread(i, j, k) << "  |  ";
+                }
+                std::cout << "\n";
+            }
+            std::cout << "\n";
+        }
     }
 };
 
 class Triad;
 
-int main()
-{
-    constexpr size_t len = 1024;
+class Triad2;
 
-    // LIKWID_MARKER_INIT;
+int main() {
+    constexpr size_t len = 1000 * 1000 * 1000 / 4;
+    constexpr size_t repetitions = 32;
 
     std::shared_ptr<LikwidPerftool> likwid = std::make_shared<LikwidPerftool>("FLOPS_SP");
     sycl::queue q(sycl::property_list{sycl::property::queue::hipSYCL_instrumentation(likwid)});
@@ -213,35 +232,36 @@ int main()
         }
     }
 
-    q.submit([&](sycl::handler& cg) {
-        auto&& aAcc = a.get_access<sycl::access_mode::read>(cg);
-        auto&& bAcc = b.get_access<sycl::access_mode::read>(cg);
-        auto&& cAcc = c.get_access<sycl::access_mode::read>(cg);
-        auto&& resultAcc = result.get_access<sycl::access_mode::write>(cg);
+    for (size_t i = 0; i < repetitions; i++) {
+        q.submit([&](sycl::handler& cg) {
+            auto&& aAcc = a.get_access<sycl::access_mode::read>(cg);
+            auto&& bAcc = b.get_access<sycl::access_mode::read>(cg);
+            auto&& cAcc = c.get_access<sycl::access_mode::read>(cg);
+            auto&& resultAcc = result.get_access<sycl::access_mode::write>(cg);
 
-        cg.parallel_for<Triad>(sycl::range<1>{len}, [=](sycl::id<1> i) {
-            resultAcc[i] = aAcc[i] + bAcc[i] * cAcc[i];
+            cg.parallel_for<Triad>(sycl::range<1>{len}, [=](sycl::id<1> i) {
+                resultAcc[i] = aAcc[i] + bAcc[i] * cAcc[i];
+            });
         });
-    });
 
-    q.submit([&](sycl::handler& cg) {
-        auto&& aAcc = a.get_access<sycl::access_mode::read>(cg);
-        auto&& bAcc = b.get_access<sycl::access_mode::read>(cg);
-        auto&& cAcc = c.get_access<sycl::access_mode::read>(cg);
-        auto&& resultAcc = result.get_access<sycl::access_mode::write>(cg);
+        q.submit([&](sycl::handler& cg) {
+            auto&& aAcc = a.get_access<sycl::access_mode::read>(cg);
+            auto&& bAcc = b.get_access<sycl::access_mode::read>(cg);
+            auto&& cAcc = c.get_access<sycl::access_mode::read>(cg);
+            auto&& resultAcc = result.get_access<sycl::access_mode::write>(cg);
 
-        cg.parallel_for<Triad>(sycl::range<1>{len}, [=](sycl::id<1> i) {
-            resultAcc[i] = aAcc[i] + bAcc[i] * cAcc[i];
+            cg.parallel_for<Triad2>(sycl::range<1>{len}, [=](sycl::id<1> i) {
+                resultAcc[i] = aAcc[i] + bAcc[i] * cAcc[i];
+            });
         });
-    }).wait();
+    }
+
+    q.wait();
 
     likwid->write_marker_file("likwid-results.txt");
-
-    //q.wait();
-
-    //likwid->print_results();
-    //likwid->print_group_results();
-    // LIKWID_MARKER_CLOSE;
+    std::cout << "Results from Marker API:\n";
+    likwid->print_marker_api_results("likwid-results.txt");
+    std::cout << "\n";
 
     return 0;
 }
