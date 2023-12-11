@@ -60,6 +60,11 @@ result submit_ocl_kernel(cl::Kernel& kernel,
                         ocl_usm* usm,
                         const hcf_kernel_info *info,
                         cl::Event* evt_out = nullptr) {
+  // All OpenCL API calls are safe, except calls that configure kernel objects
+  // like clSetKernelArgs. Currently we are not guaranteed that each thread gets
+  // its own separate kernel object, so we have to lock the submission process for now.
+  static std::mutex mutex;
+  std::lock_guard<std::mutex> lock{mutex};
 
   cl_int err = 0;
   for(std::size_t i = 0; i < num_args; ++i ){
@@ -143,7 +148,7 @@ ocl_queue::ocl_queue(ocl_hardware_manager* hw_manager, std::size_t device_index)
 ocl_queue::~ocl_queue() {}
 
 std::shared_ptr<dag_node_event> ocl_queue::insert_event() {
-  if(!_most_recent_event) {
+  if(!_state.get_most_recent_event()) {
     // Normally, this code path should only be triggered
     // when no work has been submitted to the queue, and so
     // nothing needs to be synchronized with. Thus
@@ -168,7 +173,7 @@ std::shared_ptr<dag_node_event> ocl_queue::insert_event() {
     
   }
 
-  return _most_recent_event;
+  return _state.get_most_recent_event();
 }
 
 std::shared_ptr<dag_node_event> ocl_queue::create_queue_completion_event() {
@@ -186,8 +191,6 @@ result ocl_queue::submit_memcpy(memcpy_operation &op, dag_node_ptr) {
 
   // TODO We could probably unify some of the logic here between
   // backends
-  device_id source_dev = op.source().get_device();
-  device_id dest_dev = op.dest().get_device();
 
   assert(op.source().get_access_ptr());
   assert(op.dest().get_access_ptr());
@@ -260,8 +263,29 @@ result ocl_queue::submit_kernel(kernel_operation &op, dag_node_ptr node) {
   return make_success();
 }
 
-result ocl_queue::submit_prefetch(prefetch_operation &, dag_node_ptr) {
-  // TODO, prefetch is just a hint
+result ocl_queue::submit_prefetch(prefetch_operation &op, dag_node_ptr) {
+  ocl_hardware_context *ocl_ctx = static_cast<ocl_hardware_context *>(
+        _hw_manager->get_device(_device_index));
+  ocl_usm* usm = ocl_ctx->get_usm_provider();
+
+  cl::Event evt;
+  cl_int err = 0;
+  if(op.get_target().is_host()) {
+    err = usm->enqueue_prefetch(_queue, op.get_pointer(), op.get_num_bytes(),
+                                CL_MIGRATE_MEM_OBJECT_HOST, {}, &evt);
+  } else {
+    err = usm->enqueue_prefetch(_queue, op.get_pointer(), op.get_num_bytes(),
+                                0, {}, &evt);
+  }
+
+  if(err != CL_SUCCESS) {
+    return make_error(
+          __hipsycl_here(),
+          error_info{"ocl_queue: enqueuing prefetch failed",
+                     error_code{"CL", static_cast<int>(err)}});
+  }
+
+  register_submitted_op(evt);
   return make_success();
 }
 
@@ -364,8 +388,9 @@ void* ocl_queue::get_native_type() const {
 }
 
 result ocl_queue::query_status(inorder_queue_status& status) {
-  if(_most_recent_event) {
-    status = inorder_queue_status{_most_recent_event->is_complete()};
+  auto evt = _state.get_most_recent_event();
+  if(evt) {
+    status = inorder_queue_status{evt->is_complete()};
   } else {
     status = inorder_queue_status{true};
   }
@@ -524,8 +549,8 @@ result ocl_queue::submit_sscp_kernel_from_code_object(
 
 
 void ocl_queue::register_submitted_op(cl::Event evt) {
-  this->_most_recent_event = std::make_shared<ocl_node_event>(
-      _hw_manager->get_device_id(_device_index), evt);
+  this->_state.set_most_recent_event(std::make_shared<ocl_node_event>(
+      _hw_manager->get_device_id(_device_index), evt));
 }
 
 }

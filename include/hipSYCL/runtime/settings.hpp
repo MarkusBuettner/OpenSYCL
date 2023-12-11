@@ -83,7 +83,8 @@ enum class setting {
   max_cached_nodes,
   sscp_failed_ir_dump_directory,
   gc_trigger_batch_size,
-  ocl_no_shared_context
+  ocl_no_shared_context,
+  ocl_show_all_devices
 };
 
 template <setting S> struct setting_trait {};
@@ -114,6 +115,7 @@ HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::sscp_failed_ir_dump_directory,
                               "sscp_failed_ir_dump_directory", std::string)
 HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::gc_trigger_batch_size, "rt_gc_trigger_batch_size", std::size_t)
 HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::ocl_no_shared_context, "rt_ocl_no_shared_context", bool)
+HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::ocl_show_all_devices, "rt_ocl_show_all_devices", bool)
 
 class settings
 {
@@ -146,6 +148,8 @@ public:
       return _gc_trigger_batch_size;
     } else if constexpr(S == setting::ocl_no_shared_context) {
       return _ocl_no_shared_context;
+    } else if constexpr(S == setting::ocl_show_all_devices) {
+      return _ocl_show_all_devices;
     }
     return typename setting_trait<S>::type{};
   }
@@ -185,22 +189,33 @@ public:
         get_environment_variable_or_default<setting::gc_trigger_batch_size>(128);
     _ocl_no_shared_context =
         get_environment_variable_or_default<setting::ocl_no_shared_context>(false);
+    _ocl_show_all_devices =
+        get_environment_variable_or_default<setting::ocl_show_all_devices>(false);
   }
 
 private:
   template <setting S, class T>
   T get_environment_variable_or_default(const T &default_value) {
-    const char *env = std::getenv(get_environment_variable_name<S>().c_str());
-    if (env) {
+    std::string env;
+
+    if (const char *env_value =
+            std::getenv(get_environment_variable_name<S>("ACPP_").c_str())) {
+      env = std::string{env_value};
+    } else if (const char *env_value =
+            std::getenv(get_environment_variable_name<S>("HIPSYCL_").c_str())) {
+      env = std::string{env_value};
+    }
+    
+    if (!env.empty()) {
       
       T val;
       std::stringstream sstr{std::string{env}};
       sstr >> val;
 
       if (sstr.fail() || sstr.bad()) {
-        std::cerr << "hipSYCL prelaunch: Could not parse value of environment "
+        std::cerr << "AdaptiveCpp prelaunch: Could not parse value of environment "
                      "variable: "
-                  << get_environment_variable_name<S>() << std::endl;
+                  << get_environment_variable_name<S>("ACPP_") << std::endl;
         return default_value;
       }
       return val;
@@ -208,10 +223,11 @@ private:
     return default_value;
   }
 
-  template <setting S> std::string get_environment_variable_name() {
+  template <setting S>
+  std::string get_environment_variable_name(const std::string &prefix) {
     std::string id = setting_trait<S>::str;
     std::transform(id.begin(), id.end(), id.begin(), ::toupper);
-    return "HIPSYCL_"+id;
+    return prefix+id;
   }
 
   int _debug_level;
@@ -227,6 +243,7 @@ private:
   std::size_t _gc_trigger_batch_size;
   visibility_mask_t _visibility_mask;
   bool _ocl_no_shared_context;
+  bool _ocl_show_all_devices;
 };
 
 }

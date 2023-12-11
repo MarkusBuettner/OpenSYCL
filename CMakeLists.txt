@@ -3,11 +3,59 @@ if(NOT CMAKE_VERSION VERSION_LESS 3.12)
   cmake_policy(SET CMP0074 NEW) # Don't complain about using BOOST_ROOT...
 endif()
 
-set(HIPSYCL_VERSION_MAJOR 23)
-set(HIPSYCL_VERSION_MINOR 10)
-set(HIPSYCL_VERSION_PATCH 0)
 
-project(hipSYCL VERSION ${HIPSYCL_VERSION_MAJOR}.${HIPSYCL_VERSION_MINOR}.${HIPSYCL_VERSION_PATCH})
+set(ACPP_VERSION_MAJOR 23)
+set(ACPP_VERSION_MINOR 10)
+set(ACPP_VERSION_PATCH 0)
+if(NOT ACPP_VERSION_SUFFIX)
+  # Get the latest abbreviated commit hash of the working branch
+  execute_process(
+    COMMAND git log -1 --format=%h
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE ACPP_GIT_COMMIT_HASH
+    RESULT_VARIABLE GIT_HASH_RETURN_CODE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  # git branch
+  execute_process(
+    COMMAND git rev-parse --abbrev-ref HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE ACPP_GIT_BRANCH
+    RESULT_VARIABLE GIT_BRANCH_RETURN_CODE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  # date of commit
+  execute_process(COMMAND git show -s --format=%cd --date=short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE ACPP_GIT_DATE
+    RESULT_VARIABLE GIT_DATE_RETURN_CODE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  # Convert YYYY-MM-DD to YYYYMMDD
+  # We can't use --date=format:%Y%m%d to be compatible with git pre-2.6
+  string(REPLACE "-" "" ACPP_GIT_DATE ${ACPP_GIT_DATE})
+  # check whether there are local changes
+  execute_process(COMMAND git diff-index --name-only HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE ACPP_LOCAL_CHANGES
+    RESULT_VARIABLE GIT_LOCAL_CHANGES_RETURN_CODE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  
+  if (GIT_HASH_RETURN_CODE EQUAL 0 AND GIT_BRANCH_RETURN_CODE EQUAL 0 AND 
+      GIT_DATE_RETURN_CODE EQUAL 0 AND GIT_LOCAL_CHANGES_RETURN_CODE EQUAL 0)
+    
+    if(NOT "${ACPP_LOCAL_CHANGES}" STREQUAL "")
+      set(DIRTY_STR ".dirty")
+    else()
+      set(DIRTY_STR "")
+    endif()
+  
+    set(ACPP_VERSION_SUFFIX "+git.${ACPP_GIT_COMMIT_HASH}.${ACPP_GIT_DATE}.branch.${ACPP_GIT_BRANCH}${DIRTY_STR}")
+  endif()
+endif()
+
+project(hipSYCL VERSION ${ACPP_VERSION_MAJOR}.${ACPP_VERSION_MINOR}.${ACPP_VERSION_PATCH})
 
 set(HIPSYCL_DEVICE_COMPILER ${PROJECT_SOURCE_DIR}/bin/syclcc-clang)
 set(HIPSYCL_SOURCE_DIR ${PROJECT_SOURCE_DIR})
@@ -151,7 +199,11 @@ if(WITH_OPENCL_BACKEND OR WITH_LEVEL_ZERO_BACKEND)
 endif()
 
 if(BUILD_CLANG_PLUGIN)
+  set(LLVM_DIR_OLD ${LLVM_DIR})
   find_package(LLVM CONFIG)
+  if(LLVM_DIR_OLD AND NOT ("${LLVM_DIR_OLD}" STREQUAL "${LLVM_DIR}"))
+    message(WARNING "Could not find LLVM in the requested location LLVM_DIR=${LLVM_DIR_OLD}; using ${LLVM_DIR}.")
+  endif()
   message(STATUS "Building hipSYCL against LLVM configured from ${LLVM_DIR}")
   #find_package(Clang REQUIRED)
 
@@ -186,6 +238,8 @@ if(BUILD_CLANG_PLUGIN)
     ${LLVM_PREFIX_DIR}/lib/clang/${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}/include
     ${LLVM_PREFIX_DIR}/lib/clang/${LLVM_VERSION_MAJOR}/include
     ${LLVM_PREFIX_DIR}/lib64/clang/${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}/include
+    ${LLVM_PREFIX_DIR}/lib64/clang/${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}/include
+    ${LLVM_PREFIX_DIR}/lib64/clang/${LLVM_VERSION_MAJOR}/include
     DOC "Path to internal clang headers. Typically, $LLVM_INSTALL_PREFIX/include/clang/<llvm-version>/include")
 
   if(EXISTS ${FOUND_CLANG_INCLUDE_PATH})
@@ -225,6 +279,9 @@ if(BUILD_CLANG_PLUGIN)
   if(${LLVM_VERSION_MAJOR} LESS 14 AND ${WITH_STDPAR_COMPILER})
     message(WARNING "clang version too old (${LLVM_VERSION_MAJOR} < 14) to be used with C++ standard parallelism support, disabling WITH_STDPAR_COMPILER")
     set(WITH_STDPAR_COMPILER false)
+  endif()
+  if(${LLVM_VERSION_MAJOR} LESS 14)
+    set(WITH_REFLECTION_BUILTINS OFF)
   endif()
   message(STATUS "Using clang include directory: ${CLANG_INCLUDE_PATH}")
 endif()
@@ -347,14 +404,14 @@ if(NOT ROCM_CXX_FLAGS)
   # __float128 even though it is not supported for CUDA / HIP,
   # see https://bugs.llvm.org/show_bug.cgi?id=47559.
 
-  set(ROCM_CXX_FLAGS "-isystem $HIPSYCL_PATH/include/hipSYCL/std/hiplike -isystem ${CLANG_INCLUDE_PATH} -U__FLOAT128__ -U__SIZEOF_FLOAT128__ -I$HIPSYCL_ROCM_PATH/include -I$HIPSYCL_ROCM_PATH/include --rocm-device-lib-path=$HIPSYCL_ROCM_PATH/amdgcn/bitcode --rocm-path=$HIPSYCL_ROCM_PATH -fhip-new-launch-api -mllvm -amdgpu-early-inline-all=true -mllvm -amdgpu-function-calls=false -D__HIP_ROCclr__" CACHE STRING "Arguments passed to compiler to compile SYCL applications with ROCm")
+  set(ROCM_CXX_FLAGS "-isystem $HIPSYCL_PATH/include/AdaptiveCpp/hipSYCL/std/hiplike -isystem ${CLANG_INCLUDE_PATH} -U__FLOAT128__ -U__SIZEOF_FLOAT128__ -I$HIPSYCL_ROCM_PATH/include -I$HIPSYCL_ROCM_PATH/include --rocm-device-lib-path=$HIPSYCL_ROCM_PATH/amdgcn/bitcode --rocm-path=$HIPSYCL_ROCM_PATH -fhip-new-launch-api -mllvm -amdgpu-early-inline-all=true -mllvm -amdgpu-function-calls=false -D__HIP_ROCclr__" CACHE STRING "Arguments passed to compiler to compile SYCL applications with ROCm")
 endif()
 
 if(NOT CUDA_CXX_FLAGS)	
   # clang erroneously sets feature detection flags for 
   # __float128 even though it is not supported for CUDA / HIP,
   # see https://bugs.llvm.org/show_bug.cgi?id=47559.
-  set(CUDA_CXX_FLAGS "-U__FLOAT128__ -U__SIZEOF_FLOAT128__ -isystem $HIPSYCL_PATH/include/hipSYCL/std/hiplike" CACHE STRING "Arguments passed to compiler to compile SYCL applications with CUDA")
+  set(CUDA_CXX_FLAGS "-U__FLOAT128__ -U__SIZEOF_FLOAT128__ -isystem $HIPSYCL_PATH/include/AdaptiveCpp/hipSYCL/std/hiplike" CACHE STRING "Arguments passed to compiler to compile SYCL applications with CUDA")
 endif()
 
 # always need -D_ENABLE_EXTENDED_ALIGNED_STORAGE to allow correctly aligned local memory on CPU
@@ -373,9 +430,10 @@ else()
 endif()
 
 set(SYCLCC_CONFIG_FILE "{
-  \"version-major\" : \"${HIPSYCL_VERSION_MAJOR}\",
-  \"version-minor\" : \"${HIPSYCL_VERSION_MINOR}\",
-  \"version-patch\" : \"${HIPSYCL_VERSION_PATCH}\",
+  \"version-major\" : \"${ACPP_VERSION_MAJOR}\",
+  \"version-minor\" : \"${ACPP_VERSION_MINOR}\",
+  \"version-patch\" : \"${ACPP_VERSION_PATCH}\",
+  \"version-suffix\" : \"${ACPP_VERSION_SUFFIX}\",
   \"plugin-llvm-version-major\" : \"${PLUGIN_LLVM_VERSION_MAJOR}\",
   \"plugin-with-cpu-acceleration\" : \"${WITH_ACCELERATED_CPU}\",
   \"default-clang\"     : \"${CLANG_EXECUTABLE_PATH}\",
@@ -411,17 +469,17 @@ configure_file(
   ${PROJECT_SOURCE_DIR}/include/hipSYCL/common/config.hpp.in
   ${PROJECT_BINARY_DIR}/include/hipSYCL/common/config.hpp)
 
-install(DIRECTORY include/CL DESTINATION include/ FILES_MATCHING PATTERN "*.hpp")
-install(DIRECTORY include/SYCL DESTINATION include/ FILES_MATCHING PATTERN "*.hpp")
-install(DIRECTORY include/hipSYCL DESTINATION include/ FILES_MATCHING PATTERN "*.hpp")
-install(DIRECTORY include/hipSYCL DESTINATION include/ FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY include/hipSYCL/std DESTINATION include/hipSYCL/ )
-install(FILES ${PROJECT_BINARY_DIR}/include/hipSYCL/common/config.hpp DESTINATION include/hipSYCL/common/)
+install(DIRECTORY include/CL DESTINATION include/AdaptiveCpp/ FILES_MATCHING PATTERN "*.hpp")
+install(DIRECTORY include/SYCL DESTINATION include/AdaptiveCpp/ FILES_MATCHING PATTERN "*.hpp")
+install(DIRECTORY include/hipSYCL DESTINATION include/AdaptiveCpp/ FILES_MATCHING PATTERN "*.hpp")
+install(DIRECTORY include/hipSYCL DESTINATION include/AdaptiveCpp/ FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY include/hipSYCL/std DESTINATION include/AdaptiveCpp/hipSYCL/ )
+install(FILES ${PROJECT_BINARY_DIR}/include/hipSYCL/common/config.hpp DESTINATION include/AdaptiveCpp/hipSYCL/common/)
 
 if(NOT WIN32)
 # Windows is case-insensitive, so don't copy to sycl/sycl.hpp as
 # we already have SYCL/sycl.hpp
-install(FILES include/SYCL/sycl.hpp DESTINATION include/sycl/)
+install(FILES include/SYCL/sycl.hpp DESTINATION include/AdaptiveCpp/sycl/)
 endif()
 install(PROGRAMS bin/acpp DESTINATION bin)
 install(PROGRAMS bin/acpp DESTINATION bin RENAME syclcc)

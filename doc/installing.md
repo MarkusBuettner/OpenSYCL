@@ -58,7 +58,7 @@ Follow [these](install-ocl.md) instructions.
 
 Once the software requirements mentioned above are met, clone the repository:
 ```
-$ git clone https://github.com/OpenSYCL/OpenSYCL
+$ git clone https://github.com/AdaptiveCpp/AdaptiveCpp
 ```
 Then, create a build directory and compile AdaptiveCpp. As described below, some backends and compilation flows must be configured with specific cmake arguments which should be passed during the cmake step.
 
@@ -106,7 +106,7 @@ On Mac, only the CPU backends are supported. The required steps are analogous to
 
 ## Manual installation (Windows)
 
-For experimental building on Windows (CPU and CUDA backends) see the corresponding [wiki](https://github.com/OpenSYCL/OpenSYCL/wiki/Using-hipSYCL-on-Windows).
+For experimental building on Windows (CPU and CUDA backends) see the corresponding [wiki](https://github.com/OpenSYCL/OpenSYCL/wiki/Using-AdaptiveCpp-on-Windows).
 The `omp.accelerated` CPU compilation flow is unsupported on Windows.
 
 ## Repositories (Linux)

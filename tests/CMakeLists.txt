@@ -73,6 +73,7 @@ add_executable(sycl_tests
   sycl/half.cpp
   sycl/id_range.cpp
   sycl/info_queries.cpp
+  sycl/interop_handle.cpp
   sycl/item.cpp
   sycl/kernel_invocation.cpp
   sycl/math.cpp
@@ -87,6 +88,8 @@ add_executable(sycl_tests
   sycl/vec.cpp
   sycl/queue.cpp)
 
+# Also test instant submission mode
+target_compile_definitions(sycl_tests PRIVATE -DHIPSYCL_ALLOW_INSTANT_SUBMISSION=1)
 target_include_directories(sycl_tests PRIVATE ${Boost_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sycl_tests PRIVATE ${Boost_LIBRARIES})
 add_sycl_to_target(TARGET sycl_tests)
@@ -126,7 +129,9 @@ if(WITH_PSTL_TESTS)
     pstl/replace_copy.cpp
     pstl/replace_copy_if.cpp
     pstl/transform.cpp
-    pstl/transform_reduce.cpp)
+    pstl/transform_reduce.cpp
+    pstl/pointer_validation.cpp
+    pstl/allocation_map.cpp)
 
   target_compile_options(pstl_tests PRIVATE --acpp-stdpar --acpp-stdpar-unconditional-offload)
   # pstl tests cannot run with global memory allocation hijacking, because apparently

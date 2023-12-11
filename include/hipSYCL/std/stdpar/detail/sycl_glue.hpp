@@ -31,6 +31,7 @@
 
 
 #include "hipSYCL/algorithms/util/allocation_cache.hpp"
+#include <atomic>
 #include <cstdlib>
 #include <hipSYCL/sycl/queue.hpp>
 #include <hipSYCL/sycl/device.hpp>
@@ -41,6 +42,8 @@
 // std:: math function support inside kernels.
 #include <hipSYCL/sycl/libkernel/builtin_interface.hpp>
 #include <new>
+
+#include "allocation_map.hpp"
 
 extern "C" void *__libc_malloc(size_t);
 extern "C" void __libc_free(void*);
@@ -71,10 +74,38 @@ private:
   algorithms::util::allocation_cache _device_scratch_cache;
   algorithms::util::allocation_cache _shared_scratch_cache;
   algorithms::util::allocation_cache _host_scratch_cache;
+  int _outstanding_offloaded_operations = 0;
+
+  static std::atomic<std::size_t>& offloading_batch_counter() {
+    static std::atomic<std::size_t> batch_counter = 0;
+    return batch_counter;
+  }
+
+  void reset_num_outstanding_operations() {
+    _outstanding_offloaded_operations = 0;
+  }
 public:
   
   sycl::queue& get_queue() {
     return _queue;
+  }
+
+  int get_num_outstanding_operations() const {
+    return _outstanding_offloaded_operations;
+  }
+
+  void increment_num_outstanding_operations() {
+    ++_outstanding_offloaded_operations;
+  }
+
+
+  std::size_t get_current_offloading_batch_id() const {
+    return offloading_batch_counter().load(std::memory_order::memory_order_acquire);
+  }
+
+  void finalize_offloading_batch() noexcept {
+    reset_num_outstanding_operations();
+    ++offloading_batch_counter();
   }
 
   template<algorithms::util::allocation_type AT>
@@ -142,6 +173,15 @@ private:
 namespace hipsycl::stdpar {
 
 class unified_shared_memory {
+  
+  struct allocation_map_payload {
+    // Note: This gets updated when logic, such as the prefetch
+    // heuristic, touches this value - so it may not be up to date
+    // if there is no prefetch!
+    int64_t most_recent_offload_batch;
+  };
+
+  using allocation_map_t = allocation_map<allocation_map_payload>;
 public:
 
   static void pop_disabled() {
@@ -169,6 +209,14 @@ public:
       }
       get()._is_initialized = true;
       pop_disabled();
+
+      if(ptr) {
+        allocation_map_t::value_type v;
+        v.allocation_size = n;
+        v.most_recent_offload_batch = -1;
+        get()._allocation_map.insert(reinterpret_cast<uint64_t>(ptr), v);
+      }
+
       return ptr;
 
     } else {
@@ -200,16 +248,34 @@ public:
         return;
 
       push_disabled();
-      if (hipsycl::sycl::get_pointer_type(ptr, ctx.get()) ==
-          hipsycl::sycl::usm::alloc::unknown) {
+      uint64_t root_address = 0;
+      if (!get()._allocation_map.get_entry_of_root_address(
+              reinterpret_cast<uint64_t>(ptr), root_address)) {
         __libc_free(ptr);
       } else {
+        get()._allocation_map.erase(reinterpret_cast<uint64_t>(ptr));
         sycl::free(ptr, ctx.get());
       }
       pop_disabled();
     } else {
       __libc_free(ptr);
     }
+  }
+
+  struct allocation_lookup_result {
+    void* root_address;
+    allocation_map_t::value_type* info;
+  };
+
+  static bool allocation_lookup(void* ptr, allocation_lookup_result& result) {
+    uint64_t root_address;
+    auto* ret = get()._allocation_map.get_entry(reinterpret_cast<uint64_t>(ptr), root_address);
+    if(!ret)
+      return false;
+
+    result.root_address = reinterpret_cast<void*>(root_address);
+    result.info = ret;
+    return true;
   }
 private:
   unified_shared_memory()
@@ -221,6 +287,7 @@ private:
   }
 
   std::atomic<bool> _is_initialized;
+  allocation_map_t _allocation_map;
 
   class thread_local_storage {
   public:
@@ -313,56 +380,56 @@ void operator delete[]( void* ptr ) noexcept {
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete  ( void* ptr, std::align_val_t al ) noexcept {
+void operator delete  ( void* ptr, std::align_val_t ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete[]( void* ptr, std::align_val_t al ) noexcept {
+void operator delete[]( void* ptr, std::align_val_t ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete  ( void* ptr, std::size_t sz ) noexcept {
+void operator delete  ( void* ptr, std::size_t ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete[]( void* ptr, std::size_t sz ) noexcept {
+void operator delete[]( void* ptr, std::size_t ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete  ( void* ptr, std::size_t sz,
-                        std::align_val_t al ) noexcept {
+void operator delete  ( void* ptr, std::size_t,
+                        std::align_val_t ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete[]( void* ptr, std::size_t sz,
-                        std::align_val_t al ) noexcept {
+void operator delete[]( void* ptr, std::size_t,
+                        std::align_val_t ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete  ( void* ptr, const std::nothrow_t& tag ) noexcept {
+void operator delete  ( void* ptr, const std::nothrow_t& ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete[]( void* ptr, const std::nothrow_t& tag ) noexcept {
+void operator delete[]( void* ptr, const std::nothrow_t& ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete  ( void* ptr, std::align_val_t al,
-                        const std::nothrow_t& tag ) noexcept {
+void operator delete  ( void* ptr, std::align_val_t,
+                        const std::nothrow_t& ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 
 HIPSYCL_STDPAR_FREE
-void operator delete[]( void* ptr, std::align_val_t al,
-                        const std::nothrow_t& tag ) noexcept {
+void operator delete[]( void* ptr, std::align_val_t,
+                        const std::nothrow_t& ) noexcept {
   hipsycl::stdpar::unified_shared_memory::free(ptr);
 }
 

@@ -340,7 +340,18 @@ class acpp_config:
                - hip.integrated-multipass: Force HIP backend to operate in integrated
                                            multipass mode.
       * spirv - use clang SYCL driver to generate spirv
-      * generic - use generic LLVM SSCP compilation flow, and JIT at runtime to target device""")
+      * generic - use generic LLVM SSCP compilation flow, and JIT at runtime to target device"""),
+
+      'stdpar-prefetch-mode' : option("--acpp-stdpar-prefetch-mode", "ACPP_STDPAR_PREFETCH_MODE", "default-stdpar-prefetch-mode", 
+"""  AdaptiveCpp supports issuing automati USM prefetch operations for allocations used inside offloaded C++ PSTL
+    algorithms. This flags determines the strategy for submitting such prefetches.
+    Supported values are:
+      * always      - Prefetches every allocation used by every stdpar kernel
+      * never       - Disables prefetching
+      * after-sync  - Prefetch all allocations used by the first kernel submitted after each synchronization point.
+                      (Prefetches running on non-idling queues can be expensive!)
+      * first       - Prefetch allocations only the very first time they are used in a kernel
+      * auto        - Let AdaptiveCpp decide (default)""")
     }
     self._flags = {
       'use-accelerated-cpu': option("--acpp-use-accelerated-cpu", "ACPP_USE_ACCELERATED_CPU",
@@ -638,11 +649,17 @@ class acpp_config:
       raise OptionNotSet("Could not retrieve major version from config file")
     if not self._config_file.contains_key("version-patch"):
       raise OptionNotSet("Could not retrieve major version from config file")
+    
+    # version suffix may be empty if git queries fail
+    suffix = ""
+    if self._config_file.contains_key("version-suffix"):
+      suffix = self._config_file.get("version-suffix")
 
     return (
       self._config_file.get("version-major"), 
       self._config_file.get("version-minor"),
-      self._config_file.get("version-patch"))
+      self._config_file.get("version-patch"),
+      suffix)
 
   @property
   def plugin_llvm_version(self):
@@ -738,11 +755,11 @@ class acpp_config:
   @property
   def acpp_plugin_path(self):
     if sys.platform.startswith('win32'):
-      return os.path.join(self.acpp_installation_path, "bin", "opensycl-clang.dll")
+      return os.path.join(self.acpp_installation_path, "bin", "acpp-clang.dll")
     elif sys.platform == "darwin":
-      return os.path.join(self.acpp_installation_path, "lib", "libopensycl-clang.dylib")
+      return os.path.join(self.acpp_installation_path, "lib", "libacpp-clang.dylib")
     else:
-      return os.path.join(self.acpp_installation_path, "lib", "libopensycl-clang.so")
+      return os.path.join(self.acpp_installation_path, "lib", "libacpp-clang.so")
 
   @property
   def sequential_link_line(self):
@@ -829,6 +846,15 @@ class acpp_config:
       return self._is_flag_set("stdpar-unconditional-offload")
     except OptionNotSet:
       return False
+  
+  @property
+  def stdpar_prefetch_mode(self):
+    mode = "auto"
+    try:
+      mode = self._retrieve_option("stdpar-prefetch-mode")
+    except OptionNotSet:
+      pass
+    return mode
 
   @property
   def save_temps(self):
@@ -843,7 +869,7 @@ class acpp_config:
 
   @property
   def acpp_include_path(self):
-    return os.path.join(self.acpp_installation_path, "include/")
+    return os.path.join(self.acpp_installation_path, "include", "AdaptiveCpp")
 
   def has_optimization_flag(self):
     for arg in self._forwarded_args:
@@ -1615,6 +1641,7 @@ class compiler:
     self._is_stdpar = config.is_stdpar
     self._is_stdpar_system_usm = config.is_stdpar_system_usm
     self._is_stdpar_unconditional_offload = config.is_stdpar_unconditional_offload
+    self._stdpar_prefetch_mode = config.stdpar_prefetch_mode
 
     if "hip" in self._targets and "cuda" in self._targets:
         if not self._is_explicit_multipass:
@@ -1673,6 +1700,9 @@ class compiler:
         self._multipass_backends.append(
           hip_multipass_invocation(config, config.targets["hip.explicit-multipass"]))
       elif backend == 'spirv':
+        print("acpp warning: 'spirv' target is deprecated, incomplete and may not work. It should not be "
+              "used outside of experiments and will be removed in a future version. Production "
+              "use cases should use 'generic' target instead to target SPIR-V devices.")
         self._multipass_backends.append(
           spirv_multipass_invocation(config))
       elif backend == 'sscp' or backend == 'generic':
@@ -1793,26 +1823,46 @@ class compiler:
       "-isystem", self._acpp_include_path,
       "-D__OPENSYCL__","-D__HIPSYCL__", "-D__ADAPTIVECPP__", "-D__ACPP__"
     ]
+
     if self._is_stdpar:
       stdpar_include_path = os.path.join(self._acpp_include_path,"hipSYCL","std","stdpar")
       args += [
         "-isystem", stdpar_include_path,
         "-D__OPENSYCL_STDPAR__", "-D__HIPSYCL_STDPAR__", "-D__ADAPTIVECPP_STDPAR__", "-D__ACPP_STDPAR__",
+        "-DHIPSYCL_ALLOW_INSTANT_SUBMISSION=1",
         # TODO We should find a way to only emit this argument if the clang plugin is used.
         "-mllvm", "-hipsycl-stdpar",
         "-include", os.path.join(stdpar_include_path, "detail", "sycl_glue.hpp")
       ]
+      
       if self._is_stdpar_system_usm:
         args += ["-mllvm", "-hipsycl-stdpar-no-malloc-to-usm", "-D__HIPSYCL_STDPAR_ASSUME_SYSTEM_USM__"]
       if self._is_stdpar_unconditional_offload:
         args += ["-D__HIPSYCL_STDPAR_UNCONDITIONAL_OFFLOAD__"]
+      
+      prefetch_mode_string = self._stdpar_prefetch_mode
+      prefetch_mode_id = 0
+      if prefetch_mode_string == "auto":
+        prefetch_mode_id = 0
+      elif prefetch_mode_string == "always":
+        prefetch_mode_id = 1
+      elif prefetch_mode_string == "never":
+        prefetch_mode_id = 2
+      elif prefetch_mode_string == "after-sync":
+        prefetch_mode_id = 3
+      elif prefetch_mode_string == "first":
+        prefetch_mode_id = 4
+      else:
+        raise RuntimeError("Invalid value for stdpar-prefetch-mode: "+prefetch_mode_string)
+      args += ["-D__HIPSYCL_STDPAR_PREFETCH_MODE__="+str(prefetch_mode_id)]
+
     return args + self._common_compiler_args
 
   @property
   def common_linker_flags(self):
     linker_args = [
       "-L"+self._acpp_lib_path,
-      "-lhipSYCL-rt"
+      "-lacpp-rt"
     ]
     
     if sys.platform == "darwin":
@@ -1930,7 +1980,7 @@ def print_config(config):
 def print_version(config):
   version = config.version
   print("acpp [AdaptiveCpp compilation driver], Copyright (C) 2018-2023 Aksel Alpay and the AdaptiveCpp project")
-  print("  AdaptiveCpp version: {}.{}.{}".format(version[0],version[1],version[2]))
+  print("  AdaptiveCpp version: {}.{}.{}{}".format(version[0],version[1],version[2],version[3]))
   print("  Installation root:",os.path.abspath(config.acpp_installation_path))
   if config.has_plugin:
     print("  Plugin LLVM version: {}, can accelerate CPU: {}".format(config.plugin_llvm_version, config.has_plugin_cpu_acceleration))

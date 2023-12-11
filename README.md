@@ -76,11 +76,13 @@ AdaptiveCpp has been repeatedly shown to deliver very competitive performance co
 
 #### General performance hints
 
+* For strong-scaling/latency-bound problems, the alternative instant task submission mode can be used, which can substantially lower task launch latencies. Define the macro `HIPSYCL_ALLOW_INSTANT_SUBMISSION=1` before including `sycl.hpp` to enable it. Instant submission is possible with operations that do not use buffers (USM only), have no dependencies on non-instant tasks, do not use SYCL 2020 reductions and use in-order queues. In the stdpar model, instant submission is active by default.
 * Building AdaptiveCpp against newer LLVM generally results in better performance for backends that are relying on LLVM.
 * Unlike other SYCL implementations that may rely on kernel compilation at runtime, some compilation flows in AdaptiveCpp rely heavily on ahead-of-time compilation. So make sure to use appropriate optimization flags when compiling.
 * For the CPU backend:
    * Don't forget that, due to AdaptiveCpp's ahead-of-time compilation nature, you may also want to enable latest vectorization instruction sets when compiling, e.g. using `-march=native`.
    * Enable OpenMP thread pinning (e.g. `OMP_PROC_BIND=true`). AdaptiveCpp uses asynchronous worker threads for some light-weight tasks such as garbage collection, and these additional threads can interfere with kernel execution if OpenMP threads are not bound to cores.
+   * When using `OMP_PROC_BIND`, there have been observations that performance suffers substantially, if AdaptiveCpp's OpenMP backend has been compiled against a different OpenMP implementation than the one used by `acpp` under the hood. For example, if `omp.acclerated` is used, `acpp` relies on clang and typically LLVM `libomp`, while the AdaptiveCpp runtime library may have been compiled with gcc and `libgomp`. The easiest way to resolve this is to appropriately use `cmake -DCMAKE_CXX_COMPILER=...` when building AdaptiveCpp to ensure that it is built using the same compiler. **If you oberve substantial performance differences between AdaptiveCpp and native OpenMP, chances are your setup is broken.**
    * Don't use `nd_range` parallel for unless you absolutely have to, as it is difficult to map efficiently to CPUs. 
       * If you don't need barriers or local memory, use `parallel_for` with `range` argument.
       * If you need local memory or barriers, scoped parallelism or hierarchical parallelism models may perform better on CPU than `parallel_for` kernels using `nd_range` argument and should be preferred. Especially scoped parallelism also works well on GPUs.
@@ -114,9 +116,9 @@ Operating system support currently strongly focuses on Linux. On Mac, only the C
 
 In order to compile software with AdaptiveCpp, use `acpp`. `acpp` can be used like a regular compiler, i.e. you can use `acpp -o test test.cpp` to compile your application called `test.cpp` with AdaptiveCpp.
 
-`syclcc` accepts both command line arguments and environment variables to configure its behavior (e.g., to select the target to compile for). See `syclcc --help` for a comprehensive list of options.
+`acpp` accepts both command line arguments and environment variables to configure its behavior (e.g., to select the target to compile for). See `acpp --help` for a comprehensive list of options.
 
-When compiling with AdaptiveCpp, you will need to specify the targets you wish to compile for using the `--acpp-targets="backend1:target1,target2,...;backend2:..."` command line argument, `ACPP_TARGETS` environment variable or cmake argument. See the documentation on [using AdaptiveCpp](doc/using-hipsycl.md) for details.
+When compiling with AdaptiveCpp, you will need to specify the targets you wish to compile for using the `--acpp-targets="compilation-flow1:target1,target2,...;compilation-flow2:..."` command line argument, `ACPP_TARGETS` environment variable or cmake argument. See the documentation on [using AdaptiveCpp](doc/using-hipsycl.md) for details. When in doubt, use `--acpp-targets=generic` which will generate a binary that can run on any supported offload device. If parallel kernel execution on CPU is also needed, use `--acpp-targets="omp;generic"`.
 
 Instructions for using AdaptiveCpp in CMake projects can also be found in the documentation on [using AdaptiveCpp](doc/using-hipsycl.md).
 
