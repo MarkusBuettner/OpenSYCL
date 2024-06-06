@@ -70,6 +70,41 @@ std::istream &operator>>(std::istream &istr, scheduler_type &out);
 std::istream &operator>>(std::istream &istr, visibility_mask_t &out);
 std::istream &operator>>(std::istream &istr, default_selector_behavior& out);
 
+template <class T>
+bool try_get_environment_variable(const std::string& name, T& out) {
+  std::string env_name = name;
+
+  std::transform(env_name.begin(), env_name.end(), env_name.begin(), ::toupper);
+
+  std::string env;
+  if (const char *env_value =
+          std::getenv(("ACPP_"+env_name).c_str())) {
+    env_name = "ACPP_"+env_name;
+    env = std::string{env_value};
+  } else if (const char *env_value =
+          std::getenv(("HIPSYCL_"+env_name).c_str())) {
+    env_name = "HIPSYCL_"+env_name;
+    env = std::string{env_value};
+  }
+  
+  if (!env.empty()) {
+    
+    T val;
+    std::stringstream sstr{std::string{env}};
+    sstr >> val;
+
+    if (sstr.fail() || sstr.bad()) {
+      std::cerr << "AdaptiveCpp settings parsing: Could not parse value of environment "
+                    "variable: "
+                << env_name << std::endl;
+      return false;
+    }
+    out = val;
+    return true;
+  }
+  return false;
+}
+
 enum class setting {
   debug_level,
   scheduler_type,
@@ -84,7 +119,9 @@ enum class setting {
   sscp_failed_ir_dump_directory,
   gc_trigger_batch_size,
   ocl_no_shared_context,
-  ocl_show_all_devices
+  ocl_show_all_devices,
+  no_jit_cache_population,
+  adaptivity_level,
 };
 
 template <setting S> struct setting_trait {};
@@ -116,6 +153,8 @@ HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::sscp_failed_ir_dump_directory,
 HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::gc_trigger_batch_size, "rt_gc_trigger_batch_size", std::size_t)
 HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::ocl_no_shared_context, "rt_ocl_no_shared_context", bool)
 HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::ocl_show_all_devices, "rt_ocl_show_all_devices", bool)
+HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::no_jit_cache_population, "rt_no_jit_cache_population", bool)
+HIPSYCL_RT_MAKE_SETTING_TRAIT(setting::adaptivity_level, "adaptivity_level", int)
 
 class settings
 {
@@ -150,6 +189,10 @@ public:
       return _ocl_no_shared_context;
     } else if constexpr(S == setting::ocl_show_all_devices) {
       return _ocl_show_all_devices;
+    } else if constexpr(S == setting::no_jit_cache_population) {
+      return _no_jit_cache_population;
+    } else if constexpr(S == setting::adaptivity_level) {
+      return _adaptivity_level;
     }
     return typename setting_trait<S>::type{};
   }
@@ -191,43 +234,20 @@ public:
         get_environment_variable_or_default<setting::ocl_no_shared_context>(false);
     _ocl_show_all_devices =
         get_environment_variable_or_default<setting::ocl_show_all_devices>(false);
+    _no_jit_cache_population =
+        get_environment_variable_or_default<setting::no_jit_cache_population>(false);
+    _adaptivity_level =
+        get_environment_variable_or_default<setting::adaptivity_level>(1);
   }
 
 private:
   template <setting S, class T>
   T get_environment_variable_or_default(const T &default_value) {
-    std::string env;
-
-    if (const char *env_value =
-            std::getenv(get_environment_variable_name<S>("ACPP_").c_str())) {
-      env = std::string{env_value};
-    } else if (const char *env_value =
-            std::getenv(get_environment_variable_name<S>("HIPSYCL_").c_str())) {
-      env = std::string{env_value};
-    }
-    
-    if (!env.empty()) {
-      
-      T val;
-      std::stringstream sstr{std::string{env}};
-      sstr >> val;
-
-      if (sstr.fail() || sstr.bad()) {
-        std::cerr << "AdaptiveCpp prelaunch: Could not parse value of environment "
-                     "variable: "
-                  << get_environment_variable_name<S>("ACPP_") << std::endl;
-        return default_value;
-      }
-      return val;
+    T out;
+    if(try_get_environment_variable(setting_trait<S>::str, out)) {
+      return out;
     }
     return default_value;
-  }
-
-  template <setting S>
-  std::string get_environment_variable_name(const std::string &prefix) {
-    std::string id = setting_trait<S>::str;
-    std::transform(id.begin(), id.end(), id.begin(), ::toupper);
-    return prefix+id;
   }
 
   int _debug_level;
@@ -244,6 +264,8 @@ private:
   visibility_mask_t _visibility_mask;
   bool _ocl_no_shared_context;
   bool _ocl_show_all_devices;
+  bool _no_jit_cache_population;
+  int _adaptivity_level;
 };
 
 }

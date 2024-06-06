@@ -94,7 +94,7 @@ public:
       const std::string &kernel_name, const rt::range<3> &num_groups,
       const rt::range<3> &group_size, unsigned local_mem_size, void **args,
       std::size_t *arg_sizes, std::size_t num_args,
-      const glue::kernel_configuration &config);
+      const kernel_configuration &config);
 
 private:
   const std::vector<std::shared_ptr<dag_node_event>>&
@@ -118,6 +118,8 @@ private:
 
   std::vector<std::future<void>> _external_waits;
 
+  std::shared_ptr<kernel_cache> _kernel_cache;
+  
   // Most L0 API functions that add to a command list are not thread-safe.
   // Since most of the public API functions of this class do exactly that,
   // arguably the best strategy to achieve thread-safety is to just have a mutex

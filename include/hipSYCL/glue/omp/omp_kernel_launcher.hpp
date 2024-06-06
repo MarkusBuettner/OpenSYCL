@@ -28,7 +28,7 @@
 #ifndef HIPSYCL_OPENMP_KERNEL_LAUNCHER_HPP
 #define HIPSYCL_OPENMP_KERNEL_LAUNCHER_HPP
 
-#include "hipSYCL/glue/kernel_configuration.hpp"
+#include "hipSYCL/runtime/kernel_configuration.hpp"
 #include <cassert>
 #include <tuple>
 #ifdef _OPENMP
@@ -123,7 +123,12 @@ void reducible_parallel_invocation(Function kernel,
 
   auto sequential_reducers =
       std::make_tuple(host::sequential_reducer{max_threads, reductions}...);
-#ifdef _OPENMP
+#ifndef _OPENMP
+  HIPSYCL_DEBUG_WARNING
+      << "omp_kernel_launcher: Kernel launcher was built without OpenMP "
+         "support, the kernel will execute sequentially!"
+      << std::endl;
+#else
 #pragma omp parallel shared(sequential_reducers)
 #endif
   {
@@ -146,86 +151,10 @@ void reducible_parallel_invocation(Function kernel,
   std::apply(finalize_all, sequential_reducers);
 }
 
-template <int Dim, class Function>
-void iterate_range_omp_for(sycl::range<Dim> r, Function f) noexcept {
-
-  if constexpr (Dim == 1) {
-#ifdef _OPENMP
-    #pragma omp for
-#endif
-    for (std::size_t i = 0; i < r.get(0); ++i) {
-      f(sycl::id<Dim>{i});
-    }
-  } else if constexpr (Dim == 2) {
-#ifdef _OPENMP
-    #pragma omp for collapse(2)
-#endif
-    for (std::size_t i = 0; i < r.get(0); ++i) {
-      for (std::size_t j = 0; j < r.get(1); ++j) {
-        f(sycl::id<Dim>{i, j});
-      }
-    }
-  } else if constexpr (Dim == 3) {
-#ifdef _OPENMP
-    #pragma omp for collapse(3)
-#endif
-    for (std::size_t i = 0; i < r.get(0); ++i) {
-      for (std::size_t j = 0; j < r.get(1); ++j) {
-        for (std::size_t k = 0; k < r.get(2); ++k) {
-          f(sycl::id<Dim>{i, j, k});
-        }
-      }
-    }
-  }
-}
-
-template <int Dim, class Function>
-void iterate_range_omp_for(sycl::id<Dim> offset, sycl::range<Dim> r,
-                           Function f) noexcept {
-
-  const std::size_t min_i = offset.get(0);
-  const std::size_t max_i = offset.get(0) + r.get(0);
-
-  if constexpr (Dim == 1) {
-#ifdef _OPENMP
-  #pragma omp for
-#endif
-    for (std::size_t i = min_i; i < max_i; ++i) {
-      f(sycl::id<Dim>{i});
-    }
-  } else if constexpr (Dim == 2) {
-    const std::size_t min_j = offset.get(1);
-    const std::size_t max_j = offset.get(1) + r.get(1);
-#ifdef _OPENMP
-  #pragma omp for collapse(2)
-#endif
-    for (std::size_t i = min_i; i < max_i; ++i) {
-      for (std::size_t j = min_j; j < max_j; ++j) {
-        f(sycl::id<Dim>{i, j});
-      }
-    }
-  } else if constexpr (Dim == 3) {
-    const std::size_t min_j = offset.get(1);
-    const std::size_t min_k = offset.get(2);
-    const std::size_t max_j = offset.get(1) + r.get(1);
-    const std::size_t max_k = offset.get(2) + r.get(2);
-#ifdef _OPENMP
-  #pragma omp for collapse(3)
-#endif
-    for (std::size_t i = min_i; i < max_i; ++i) {
-      for (std::size_t j = min_j; j < max_j; ++j) {
-        for (std::size_t k = min_k; k < max_k; ++k) {
-          f(sycl::id<Dim>{i, j, k});
-        }
-      }
-    }
-  }
-}
-
 #ifdef __HIPSYCL_USE_ACCELERATED_CPU__
-extern "C" size_t __hipsycl_local_id_x;
-extern "C" size_t __hipsycl_local_id_y;
-extern "C" size_t __hipsycl_local_id_z;
+extern "C" size_t __hipsycl_cbs_local_id_x;
+extern "C" size_t __hipsycl_cbs_local_id_y;
+extern "C" size_t __hipsycl_cbs_local_id_z;
 
 template <int Dim, class Function, class ...Reducers>
 HIPSYCL_LOOP_SPLIT_ND_KERNEL __attribute__((noinline))
@@ -235,18 +164,18 @@ inline void iterate_nd_range_omp(Function f, const sycl::id<Dim> &&group_id, con
   std::function<void()> &barrier_impl,
   Reducers& ... reducers) noexcept {
   if constexpr (Dim == 1) {
-    sycl::id<Dim> local_id{__hipsycl_local_id_x};
+    sycl::id<Dim> local_id{__hipsycl_cbs_local_id_x};
     sycl::nd_item<Dim> this_item{&offset,    group_id,   local_id,
       local_size, num_groups, &barrier_impl, group_shared_memory_ptr};
     f(this_item, reducers...);
   } else if constexpr (Dim == 2) {
-    sycl::id<Dim> local_id{__hipsycl_local_id_x, __hipsycl_local_id_y};
+    sycl::id<Dim> local_id{__hipsycl_cbs_local_id_x, __hipsycl_cbs_local_id_y};
     sycl::nd_item<Dim> this_item{&offset, group_id,
       local_id, local_size, num_groups,
       &barrier_impl, group_shared_memory_ptr};
     f(this_item, reducers...);
   } else if constexpr (Dim == 3) {
-    sycl::id<Dim> local_id{__hipsycl_local_id_x, __hipsycl_local_id_y, __hipsycl_local_id_z};
+    sycl::id<Dim> local_id{__hipsycl_cbs_local_id_x, __hipsycl_cbs_local_id_y, __hipsycl_cbs_local_id_z};
     sycl::nd_item<Dim> this_item{&offset,    group_id,
       local_id,   local_size,
       num_groups, &barrier_impl, group_shared_memory_ptr};
@@ -272,9 +201,9 @@ inline void parallel_for_kernel(Function f,
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
-  reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
+  reducible_parallel_invocation([&, f](auto& ... reducers){
     perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
-    iterate_range_omp_for(execution_range, [&](sycl::id<Dim> idx) {
+    host::iterate_range_omp_for(execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
         sycl::detail::make_item<Dim>(idx, execution_range);
 
@@ -294,7 +223,7 @@ inline void parallel_for_kernel_offset(Function f,
 
   reducible_parallel_invocation<KernelNameTraits>([&, f](auto& ... reducers){
     perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
-    iterate_range_omp_for(offset, execution_range, [&](sycl::id<Dim> idx) {
+    host::iterate_range_omp_for(offset, execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
         sycl::detail::make_item<Dim>(idx, execution_range, offset);
 
@@ -328,7 +257,7 @@ inline void parallel_for_ndrange_kernel(
       std::terminate();
     };
 
-    iterate_range_omp_for(num_groups, [&](sycl::id<Dim> &&group_id) {
+    host::iterate_range_omp_for(num_groups, [&](sycl::id<Dim> &&group_id) {
       iterate_nd_range_omp(f, std::move(group_id), num_groups, local_size, offset,
         num_local_mem_bytes, &group_shared_memory_ptr, barrier_impl, reducers...);
     });
@@ -380,7 +309,7 @@ inline void parallel_for_workgroup(Function f,
         sycl::detail::host_local_memory::request_from_threadprivate_pool(
             num_local_mem_bytes);
 
-        iterate_range_omp_for(num_groups, [&, f](sycl::id<Dim> group_id) {
+        host::iterate_range_omp_for(num_groups, [&, f](sycl::id<Dim> group_id) {
           sycl::group<Dim> this_group{group_id, local_size, num_groups};
 
           f(this_group, reducers...);
@@ -408,7 +337,7 @@ inline void parallel_region(Function f,
         sycl::detail::host_local_memory::request_from_threadprivate_pool(
             num_local_mem_bytes);
 
-        iterate_range_omp_for(num_groups, [&](sycl::id<dimensions> group_id) {
+        host::iterate_range_omp_for(num_groups, [&](sycl::id<dimensions> group_id) {
 
           using group_properties =
               sycl::detail::sp_property_descriptor<dimensions, 0,
@@ -629,7 +558,7 @@ public:
   }
 
   virtual void invoke(rt::dag_node *node,
-                      const kernel_configuration &) final override {
+                      const rt::kernel_configuration &) final override {
     _invoker(node);
   }
 

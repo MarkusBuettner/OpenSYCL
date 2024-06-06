@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <numeric>
 #include <vector>
 
@@ -238,6 +239,18 @@ BOOST_AUTO_TEST_CASE(accessor_api) {
   la1.swap(la1_copy);
   la2.swap(la2_copy);
   la3.swap(la3_copy);
+
+  // Test max_size
+  {
+    s::accessor<int, 1> acc;
+    s::host_accessor<int, 1> hacc;
+    s::local_accessor<int, 1> lacc;
+
+    const auto expected = std::numeric_limits<std::ptrdiff_t>::max();
+    BOOST_REQUIRE(acc.max_size() == expected);
+    BOOST_REQUIRE(hacc.max_size() == expected);
+    BOOST_REQUIRE(lacc.max_size() == expected);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(nested_subscript) {
@@ -850,6 +863,27 @@ BOOST_AUTO_TEST_CASE(offset_nested_subscript) {
         expected[i*N+j] = 1;
 
   BOOST_CHECK(data == expected);
+}
+
+BOOST_AUTO_TEST_CASE(zero_dim_accessor) {
+  namespace s = cl::sycl;
+
+  int val = 1;
+  {
+    s::buffer<int,1> buf{&val, 1};
+
+    s::queue q;
+    q.submit([&](auto &h){
+      s::accessor<int, 0> acc{buf, h};
+
+      h.single_task([=]() {
+        int &ref = acc;
+        ref = 123;
+      });
+    });
+  }
+
+  BOOST_CHECK(val == 123);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
