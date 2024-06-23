@@ -1017,9 +1017,9 @@ private:
           rt::hints::coarse_grained_synchronization{});
     }
     if (this->has_property<property::queue::hipSYCL_instrumentation>()) {
-      _default_hints.add_hint(
-              rt::make_execution_hint<rt::hints::performance_tool_api>(
-                      this->get_property<property::queue::hipSYCL_instrumentation>().instrumentation));
+      _default_hints->set_hint(
+              rt::hints::performance_tool_api{
+                      this->get_property<property::queue::hipSYCL_instrumentation>().instrumentation});
     }
 
     _is_in_order = this->has_property<property::queue::in_order>();

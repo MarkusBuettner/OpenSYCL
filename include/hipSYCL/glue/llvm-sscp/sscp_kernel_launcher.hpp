@@ -46,6 +46,7 @@
 #include "hipSYCL/sycl/libkernel/sp_group.hpp"
 #include "hipSYCL/sycl/libkernel/group.hpp"
 #include "ir_constants.hpp"
+#include "hipSYCL/sycl/ext/performance_guard.hpp"
 
 #include <array>
 
@@ -270,23 +271,28 @@ public:
 
       rt::kernel_operation *operation =
           static_cast<rt::kernel_operation *>(node->get_operation());
+      ext::performance_api_guard perf_api(node);
+      perf_api.kernel_start(typeid(KernelNameTraits));
 
       if constexpr(type == rt::kernel_type::single_task){
 
         launch_kernel_with_global_range(__sscp_dispatch::single_task{k},
                                         operation, sycl::range{1},
-                                        sycl::range{1}, dynamic_local_memory);
+                                        sycl::range{1}, dynamic_local_memory,
+                                        perf_api);
 
       } else if constexpr (type == rt::kernel_type::basic_parallel_for) {
 
         if(offset == sycl::id<Dim>{}) {
           launch_kernel_with_global_range(
               __sscp_dispatch::basic_parallel_for{k, global_range}, operation,
-              global_range, local_range, dynamic_local_memory);
+              global_range, local_range, dynamic_local_memory,
+              perf_api);
         } else {
           launch_kernel_with_global_range(
               __sscp_dispatch::basic_parallel_for_offset{k, offset, global_range},
-              operation, global_range, local_range, dynamic_local_memory);
+              operation, global_range, local_range, dynamic_local_memory,
+              perf_api);
         }
 
       } else if constexpr (type == rt::kernel_type::ndrange_parallel_for) {
@@ -294,11 +300,13 @@ public:
         if(offset == sycl::id<Dim>{}) {
           launch_kernel_with_global_range(
               __sscp_dispatch::ndrange_parallel_for<Kernel, Dim>{k}, operation,
-              global_range, local_range, dynamic_local_memory);
+              global_range, local_range, dynamic_local_memory,
+              perf_api);
         } else {
           launch_kernel_with_global_range(
               __sscp_dispatch::ndrange_parallel_for_offset<Kernel, Dim>{k, offset},
-              operation, global_range, local_range, dynamic_local_memory);
+              operation, global_range, local_range, dynamic_local_memory,
+              perf_api);
         }
 
       } else if constexpr (type == rt::kernel_type::hierarchical_parallel_for) {
@@ -315,6 +323,8 @@ public:
       else {
         assert(false && "Unsupported kernel type");
       }
+
+      perf_api.kernel_end(typeid(KernelNameTraits));
     };
   }
 
@@ -354,7 +364,8 @@ private:
                                        rt::kernel_operation *op,
                                        const sycl::range<Dim> &global_range,
                                        const sycl::range<Dim> &group_size,
-                                       unsigned local_mem_size) {
+                                       unsigned local_mem_size,
+                                       const ext::performance_api_guard& perf_api) {
 
     auto sscp_invoker = this->get_launch_capabilities().get_sscp_invoker();
     if(!sscp_invoker) {
@@ -376,14 +387,15 @@ private:
       num_groups[i] = (rt_global_range[i] + selected_group_size[i] - 1) /
                       selected_group_size[i];
     }
-    launch_kernel(k, op, num_groups, selected_group_size, local_mem_size);
+    launch_kernel(k, op, num_groups, selected_group_size, local_mem_size, perf_api);
   }
 
   template <class Kernel, int Dim>
   void launch_kernel(const Kernel &k, rt::kernel_operation *op,
                      const sycl::range<Dim> &num_groups,
                      const sycl::range<Dim> &group_size,
-                     unsigned local_mem_size) {
+                     unsigned local_mem_size,
+                     const ext::performance_api_guard& perf_api) {
     launch_kernel(k, op, flip_range(num_groups), flip_range(group_size),
                   local_mem_size);
   }
@@ -393,7 +405,8 @@ private:
     rt::kernel_operation* op,
     const rt::range<3>& num_groups,
     const rt::range<3>& group_size,
-    unsigned local_mem_size) {
+    unsigned local_mem_size,
+    const ext::performance_api_guard& perf_api) {
     
     assert(op);
 

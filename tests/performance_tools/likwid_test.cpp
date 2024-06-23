@@ -117,6 +117,7 @@ public:
     }
 
     virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
+	std::cout << "OMP thread start\n";
         resultsPerGroup.at(kernel_type_info).lastStartTime[omp_get_thread_num()] = clock_type::now();
     }
 

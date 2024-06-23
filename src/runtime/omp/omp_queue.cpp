@@ -49,6 +49,7 @@
 #include "hipSYCL/glue/llvm-sscp/jit.hpp"
 #include "hipSYCL/runtime/adaptivity_engine.hpp"
 #include "hipSYCL/runtime/omp/omp_code_object.hpp"
+#include "hipSYCL/sycl/ext/performance_guard.hpp"
 
 #ifndef WIN32
 #include <unistd.h>
@@ -206,7 +207,8 @@ result
 launch_kernel_from_so(omp_sscp_executable_object::omp_sscp_kernel *kernel,
                       const rt::range<3> &num_groups,
                       const rt::range<3> &local_size, unsigned shared_memory,
-                      void **kernel_args) {
+                      void **kernel_args,
+                      const ext::performance_tool_api& perf_api) {
   if (num_groups.size() == 1 && shared_memory == 0) {
     omp_sscp_executable_object::work_group_info info{
         num_groups, rt::id<3>{0, 0, 0}, local_size, nullptr};
@@ -382,6 +384,7 @@ result omp_queue::submit_kernel(kernel_operation &op, dag_node_ptr node) {
         error_info{"omp_queue: Could not find required kernel launcher",
                    error_type::runtime_error});
   }
+  launcher->set_params(this);
 
   rt::backend_kernel_launch_capabilities cap;
   cap.provide_sscp_invoker(&_sscp_code_object_invoker);
@@ -407,7 +410,8 @@ result omp_queue::submit_sscp_kernel_from_code_object(
     const std::string &kernel_name, const rt::range<3> &num_groups,
     const rt::range<3> &group_size, unsigned local_mem_size, void **args,
     std::size_t *arg_sizes, std::size_t num_args,
-    const kernel_configuration &initial_config) {
+    const kernel_configuration &initial_config,
+    const ext::performance_tool_api& perf_api) {
 #ifdef HIPSYCL_WITH_SSCP_COMPILER
 
   const hcf_kernel_info *kernel_info =
@@ -510,7 +514,7 @@ result omp_queue::submit_sscp_kernel_from_code_object(
           kernel_name);
 
   return launch_kernel_from_so(kernel, num_groups, group_size, local_mem_size,
-                               arg_mapper.get_mapped_args());
+                               arg_mapper.get_mapped_args(), perf_api);
 
 #else
   return make_error(
@@ -616,11 +620,12 @@ result omp_sscp_code_object_invoker::submit_kernel(
     const rt::range<3> &num_groups, const rt::range<3> &group_size,
     unsigned local_mem_size, void **args, std::size_t *arg_sizes,
     std::size_t num_args, const std::string &kernel_name,
-    const kernel_configuration &config) {
+    const kernel_configuration &config,
+    const ext::performance_tool_api& perf_api) {
 
   return _queue->submit_sscp_kernel_from_code_object(
       op, hcf_object, kernel_name, num_groups, group_size,
-      local_mem_size, args, arg_sizes, num_args, config);
+      local_mem_size, args, arg_sizes, num_args, config, perf_api);
 }
 
 rt::range<3> omp_sscp_code_object_invoker::select_group_size(

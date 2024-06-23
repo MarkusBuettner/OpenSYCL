@@ -150,12 +150,15 @@ class request_instrumentation_submission_timestamp : public execution_hint {};
 class request_instrumentation_start_timestamp : public execution_hint {};
 class request_instrumentation_finish_timestamp : public execution_hint {};
 
-class performance_tool_api : public execution_hint {
+class performance_tool_api : public execution_hint 
+{
 public:
+  performance_tool_api() : _ptool(nullptr) {
+  }
   performance_tool_api(std::shared_ptr<ext::performance_tool_api> performance_tool)
   : _ptool{std::move(performance_tool)} {}
 
-  std::shared_ptr<ext::performance_tool_api> get_performance_tool() {
+  [[nodiscard]] std::shared_ptr<ext::performance_tool_api> get_performance_tool() const {
     return _ptool;
   }
 private:
@@ -223,6 +226,8 @@ private:
       _request_instrumentation_finish_timestamp;
 
   hints::instant_execution _instant_execution;
+
+  hints::performance_tool_api _performance_tool_api;
 };
 
 #define HIPSYCL_RT_HINTS_MAP_GETTER(name, member)                              \
@@ -249,6 +254,7 @@ HIPSYCL_RT_HINTS_MAP_GETTER(request_instrumentation_finish_timestamp,
                             _request_instrumentation_finish_timestamp);
 HIPSYCL_RT_HINTS_MAP_GETTER(instant_execution,
                             _instant_execution);
+HIPSYCL_RT_HINTS_MAP_GETTER(performance_tool_api, _performance_tool_api);
 }
 }
 

@@ -41,7 +41,7 @@ namespace hipsycl::ext {
 class performance_api_guard : public hipsycl::ext::performance_tool_api {
 public:
   explicit performance_api_guard(rt::dag_node *node) {
-    if (node->get_execution_hints()
+    if (node && node->get_execution_hints()
             .has_hint<rt::hints::performance_tool_api>()) {
       _performance_api = node->get_execution_hints()
                              .get_hint<rt::hints::performance_tool_api>()
@@ -50,7 +50,11 @@ public:
     }
   }
 
-  virtual void init(hipsycl::rt::device_id dev) override {
+  performance_api_guard(rt::dag_node *node, std::type_info&& kernel_type_info) {
+
+  }
+
+  virtual void init(hipsycl::rt::device_id) override {
     // init should never be called by the kernel launcher...
   }
 

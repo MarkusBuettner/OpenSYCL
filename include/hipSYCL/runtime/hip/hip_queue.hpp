@@ -76,7 +76,8 @@ public:
                                unsigned local_mem_size, void **args,
                                std::size_t *arg_sizes, std::size_t num_args,
                                const std::string &kernel_name,
-                               const kernel_configuration& config) override;
+                               const kernel_configuration& config,
+                               const ext::performance_tool_api& perf_api) override;
 private:
   hip_queue* _queue;
 };

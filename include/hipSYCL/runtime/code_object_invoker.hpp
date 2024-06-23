@@ -34,6 +34,7 @@
 #include "util.hpp"
 #include "kernel_cache.hpp"
 #include "operations.hpp"
+#include "hipSYCL/sycl/ext/performance_guard.hpp"
 
 namespace hipsycl {
 namespace rt {
@@ -60,7 +61,8 @@ public:
                                unsigned local_mem_size, void **args,
                                std::size_t *arg_sizes, std::size_t num_args,
                                const std::string &kernel_name,
-                               const kernel_configuration& config) = 0;
+                               const kernel_configuration& config,
+                               const hipsycl::ext::performance_tool_api& perf_api = ext::performance_api_guard{nullptr}) = 0;
 
   virtual rt::range<3> select_group_size(const rt::range<3> &global_range,
                                          const rt::range<3> &group_size) const {
