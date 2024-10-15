@@ -1,31 +1,13 @@
 /*
- * This file is part of hipSYCL, a SYCL implementation based on CUDA/HIP
+ * This file is part of AdaptiveCpp, an implementation of SYCL and C++ standard
+ * parallelism for CPUs and GPUs.
  *
- * Copyright (c) 2021 Aksel Alpay and contributors
- * All rights reserved.
+ * Copyright The AdaptiveCpp Contributors
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * AdaptiveCpp is released under the BSD 2-Clause "Simplified" License.
+ * See file LICENSE in the project root for full license details.
  */
-
+// SPDX-License-Identifier: BSD-2-Clause
 #include "hipSYCL/compiler/cbs/SubCfgFormation.hpp"
 
 #include "hipSYCL/compiler/cbs/IRUtils.hpp"
@@ -145,7 +127,7 @@ getLocalSizeArgumentFromAnnotation(llvm::Function &F) {
   for (auto &BB : F)
     for (auto &I : BB)
       if (auto *UI = llvm::dyn_cast<llvm::CallInst>(&I))
-        if (UI->getCalledFunction()->getName().startswith("llvm.var.annotation")) {
+        if (hipsycl::llvmutils::starts_with(UI->getCalledFunction()->getName(), "llvm.var.annotation")) {
           HIPSYCL_DEBUG_INFO << *UI << '\n';
           llvm::GlobalVariable *AnnotateStr = nullptr;
           if (auto *CE = llvm::dyn_cast<llvm::ConstantExpr>(UI->getOperand(1));
@@ -160,7 +142,8 @@ getLocalSizeArgumentFromAnnotation(llvm::Function &F) {
             if (auto *Data =
                     llvm::dyn_cast<llvm::ConstantDataSequential>(AnnotateStr->getInitializer())) {
               if (Data->isString() &&
-                  Data->getAsString().startswith("hipsycl_nd_kernel_local_size_arg")) {
+		  hipsycl::llvmutils::starts_with(Data->getAsString(),
+						  "hipsycl_nd_kernel_local_size_arg")) {
                 if (auto *BC = llvm::dyn_cast<llvm::BitCastInst>(UI->getOperand(0)))
                   return {BC->getOperand(0), UI};
                 return {UI->getOperand(0), UI};
@@ -486,7 +469,7 @@ SubCFG::SubCFG(llvm::BasicBlock *EntryBarrier, llvm::AllocaInst *LastBarrierIdSt
       LastBarrierIdStorage_(LastBarrierIdStorage), ContIdx_(IndVar),
       EntryBB_(EntryBarrier->getSingleSuccessor()), LoadBB_(nullptr), PreHeader_(nullptr),
       Dim(Dim) {
-  assert(ContIdx_ && "Must have found __hipsycl_cbs_local_id_{x,y,z}");
+  assert(ContIdx_ && "Must have found __acpp_cbs_local_id_{x,y,z}");
 
   llvm::SmallVector<llvm::BasicBlock *, 4> WL{EntryBarrier};
   while (!WL.empty()) {
@@ -1321,19 +1304,13 @@ void formSubCfgs(llvm::Function &F, llvm::LoopInfo &LI, llvm::DominatorTree &DT,
 
 void createLoopsAroundKernel(llvm::Function &F, llvm::DominatorTree &DT, llvm::LoopInfo &LI,
                              llvm::PostDominatorTree &PDT, bool IsSscp) {
-#if LLVM_VERSION_MAJOR >= 13
-#define HIPSYCL_LLVM_BEFORE , true
-#else
-#define HIPSYCL_LLVM_BEFORE
-#endif
 
   auto *Body = llvm::SplitBlock(&F.getEntryBlock(), &*F.getEntryBlock().getFirstInsertionPt(), &DT,
-                                &LI, nullptr, "wibody" HIPSYCL_LLVM_BEFORE);
+                                &LI, nullptr, "wibody", true);
   HIPSYCL_DEBUG_EXECUTE_VERBOSE(F.viewCFG());
-#if LLVM_VERSION_MAJOR >= 13
+
   Body = Body->getSingleSuccessor();
-#endif
-#undef HIPSYCL_LLVM_BEFORE
+
 
   llvm::SmallVector<llvm::BasicBlock *, 4> ExitBBs;
   llvm::BasicBlock *ExitBB = llvm::BasicBlock::Create(F.getContext(), "exit", &F);

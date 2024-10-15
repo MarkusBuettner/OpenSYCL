@@ -5,7 +5,7 @@ endif()
 
 
 set(ACPP_VERSION_MAJOR 24)
-set(ACPP_VERSION_MINOR 02)
+set(ACPP_VERSION_MINOR 06)
 set(ACPP_VERSION_PATCH 0)
 
 execute_process(
@@ -103,6 +103,71 @@ list(INSERT CMAKE_MODULE_PATH 0 "${PROJECT_SOURCE_DIR}/cmake/")
 find_package(CUDA QUIET)
 find_package(HIP QUIET HINTS ${ROCM_PATH} ${ROCM_PATH}/lib/cmake)
 
+#set(WITH_CUDA_NVCXX_ONLY FALSE CACHE BOOL "(Deprecated) Whether to target CUDA exclusively with nvc++")
+
+if(APPLE OR WIN32)
+  set(DEFAULT_COMPILER_FEATURES_ENABLED false)
+  set(ACPP_COMPILER_FEATURE_PROFILE "none" CACHE STRING "The level of AdaptiveCpp compiler features to enable. If not set to 'full', AdaptiveCpp will run in a degraded mode that may have implications for certain functionalities or performance in certain cases.")
+else()
+  set(DEFAULT_COMPILER_FEATURES_ENABLED true)
+  set(ACPP_COMPILER_FEATURE_PROFILE "full" CACHE STRING "The level of AdaptiveCpp compiler features to enable. If not set to 'full', AdaptiveCpp will run in a degraded mode that may have implications for certain functionalities or performance in certain cases.")
+endif()
+set_property(CACHE ACPP_COMPILER_FEATURE_PROFILE PROPERTY STRINGS full  minimal none)
+
+
+if (DEFINED WITH_SSCP_COMPILER OR DEFINED WITH_STDPAR_COMPILER OR DEFINED WITH_ACCELERATED_CPU OR DEFINED WITH_CUDA_NVCXX_ONLY)
+  message(DEPRECATION "WITH_SSCP_COMPILER, WITH_STDPAR_COMPILER, WITH_ACCELERATED_CPU and WITH_CUDA_NVCXX_ONLY are deprecated and will be removed in a future version; please use ACPP_COMPILER_FEATURE_PROFILE instead.")
+  set(ACPP_COMPILER_FEATURE_PROFILE "custom-deprecated")
+endif()
+
+
+set(ACPP_CUSTOM_PROFILE_WITH_SSCP_COMPILER ${DEFAULT_COMPILER_FEATURES_ENABLED} CACHE INTERNAL "(deprecated) custom profile")
+set(ACPP_CUSTOM_PROFILE_WITH_STDPAR_COMPILER ${DEFAULT_COMPILER_FEATURES_ENABLED} CACHE INTERNAL "(deprecated) custom profile")
+set(ACPP_CUSTOM_PROFILE_WITH_ACCELERATED_CPU ${DEFAULT_COMPILER_FEATURES_ENABLED} CACHE INTERNAL "(deprecated) custom profile")
+
+if(ACPP_COMPILER_FEATURE_PROFILE STREQUAL "full")
+  set(WITH_SSCP_COMPILER true)
+  set(WITH_STDPAR_COMPILER true)
+  set(WITH_ACCELERATED_CPU true)
+elseif(ACPP_COMPILER_FEATURE_PROFILE STREQUAL "minimal")
+  set(WITH_SSCP_COMPILER false)
+  set(WITH_STDPAR_COMPILER false)
+  set(WITH_ACCELERATED_CPU false)
+elseif(ACPP_COMPILER_FEATURE_PROFILE STREQUAL "none")
+  # CUDA_NVCXX is handled further down.
+  set(WITH_SSCP_COMPILER false)
+  set(WITH_STDPAR_COMPILER false)
+  set(WITH_ACCELERATED_CPU false)
+elseif(ACPP_COMPILER_FEATURE_PROFILE STREQUAL "custom-deprecated")
+  if(DEFINED WITH_SSCP_COMPILER)
+    set(ACPP_CUSTOM_PROFILE_WITH_SSCP_COMPILER ${WITH_SSCP_COMPILER} CACHE INTERNAL "(deprecated) custom profile")
+  endif()
+  if(DEFINED WITH_STDPAR_COMPILER)
+    set(ACPP_CUSTOM_PROFILE_WITH_STDPAR_COMPILER ${WITH_STDPAR_COMPILER} CACHE INTERNAL "(deprecated) custom profile")
+  endif()
+  if(DEFINED WITH_ACCELERATED_CPU)
+    set(ACPP_CUSTOM_PROFILE_WITH_ACCELERATED_CPU ${WITH_ACCELERATED_CPU} CACHE INTERNAL "(deprecated) custom profile")
+  endif()
+  
+  # Ensure that these argument do not enter cache, otherwise the if(defined) checks above
+  # will no longer work.
+  unset(WITH_SSCP_COMPILER CACHE)
+  unset(WITH_STDPAR_COMPILER CACHE)
+  unset(WITH_ACCELERATED_CPU CACHE)
+  
+  set(WITH_SSCP_COMPILER ${ACPP_CUSTOM_PROFILE_WITH_SSCP_COMPILER})
+  set(WITH_STDPAR_COMPILER ${ACPP_CUSTOM_PROFILE_WITH_STDPAR_COMPILER})
+  set(WITH_ACCELERATED_CPU ${ACPP_CUSTOM_PROFILE_WITH_ACCELERATED_CPU})
+
+
+  message(DEPRECATION "Configuring DEPRECATED custom compiler feature profile with SSCP=${WITH_SSCP_COMPILER}, stdpar=${WITH_STDPAR_COMPILER}, accelerated cpu=${WITH_ACCELERATED_CPU}")
+else()
+  message(SEND_ERROR "Invalid value for ACPP_COMPILER_FEATURE_PROFILE: '${ACPP_COMPILER_FEATURE_PROFILE}'. Allowed values are: full, minimal, none")
+endif()
+
+
+message(STATUS "Building with compiler feature profile: ${ACPP_COMPILER_FEATURE_PROFILE}")
+
 # Check for OpenCL unless user has explicitly set WITH_SSCP_COMPILER to False
 if (DEFINED WITH_SSCP_COMPILER)
   if (WITH_SSCP_COMPILER)
@@ -152,20 +217,10 @@ if(WITH_OPENCL_BACKEND)
   endif()
 endif()
 
-set(WITH_CUDA_BACKEND ${CUDA_FOUND} CACHE BOOL "Build hipSYCL support for NVIDIA GPUs with CUDA")
-set(WITH_ROCM_BACKEND ${ROCM_FOUND} CACHE BOOL "Build hipSYCL support for AMD GPUs with ROCm")
-set(WITH_OPENCL_BACKEND ${OpenCL_FOUND} CACHE BOOL "Build hipSYCL support for OpenCL SPIR-V devices supporting USM")
-set(WITH_CUDA_NVCXX_ONLY FALSE CACHE BOOL "Whether to target CUDA exclusively with nvc++")
+set(WITH_CUDA_BACKEND ${CUDA_FOUND} CACHE BOOL "Build AdaptiveCpp support for NVIDIA GPUs with CUDA")
+set(WITH_ROCM_BACKEND ${ROCM_FOUND} CACHE BOOL "Build AdaptiveCpp support for AMD GPUs with ROCm")
+set(WITH_OPENCL_BACKEND ${OpenCL_FOUND} CACHE BOOL "Build AdaptiveCpp support for OpenCL SPIR-V devices supporting USM")
 
-if(APPLE OR WIN32 OR WITH_CUDA_NVCXX_ONLY)
-  set(WITH_ACCELERATED_CPU false CACHE BOOL "Build hipSYCL compiler support for accelerating the CPU backend")
-  set(WITH_SSCP_COMPILER false CACHE BOOL "Build hipSYCL generic SSCP compiler support")
-  set(WITH_STDPAR_COMPILER false CACHE BOOL "Build hipSYCL C++ standard parallelism support")
-else()
-  set(WITH_ACCELERATED_CPU true CACHE BOOL "Build hipSYCL compiler support for accelerating the CPU backend")
-  set(WITH_SSCP_COMPILER true CACHE BOOL "Build hipSYCL generic SSCP compiler support")
-  set(WITH_STDPAR_COMPILER true CACHE BOOL "Build hipSYCL C++ standard parallelism compiler support")
-endif()
 set(WITH_CPU_BACKEND true)
 
 if(WITH_CUDA_BACKEND)
@@ -200,15 +255,19 @@ else()
   set(WITH_STDPAR_COMPILER false)
 endif()
 
-if(WITH_CUDA_BACKEND AND NOT WITH_CUDA_NVCXX_ONLY)
-  set(BUILD_CLANG_PLUGIN true)
+if(WITH_CUDA_BACKEND)
+  if(NOT WITH_CUDA_NVCXX_ONLY AND NOT ACPP_COMPILER_FEATURE_PROFILE STREQUAL "none")
+    set(BUILD_CLANG_PLUGIN true)
+  endif()
 endif()
 if(WITH_ROCM_BACKEND)
   set(BUILD_CLANG_PLUGIN true)
 endif()
 if(WITH_OPENCL_BACKEND OR WITH_LEVEL_ZERO_BACKEND)
-  set(BUILD_CLANG_PLUGIN true)
-  set(WITH_SSCP_COMPILER true)
+  if(NOT ACPP_COMPILER_FEATURE_PROFILE STREQUAL "none" AND NOT ACPP_COMPILER_FEATURE_PROFILE STREQUAL "minimal")
+    set(BUILD_CLANG_PLUGIN true)
+    set(WITH_SSCP_COMPILER true)
+  endif()
 endif()
 
 if(BUILD_CLANG_PLUGIN)
@@ -273,28 +332,17 @@ if(BUILD_CLANG_PLUGIN)
       set(ROCM_VERSION_MINOR ${CMAKE_MATCH_2})
       set(ROCM_VERSION_PATCH ${CMAKE_MATCH_3})
       message(STATUS "AMD clang version: ${ROCM_VERSION_MAJOR}.${ROCM_VERSION_MINOR}.${ROCM_VERSION_PATCH}")
-
-      if(${LLVM_VERSION_MAJOR} EQUAL 13 AND NOT DEFINED HIPSYCL_NO_DEVICE_MANGLER)
-        message(SEND_ERROR "AMD clang version not compatible with hipSYCL explicit multipass. "
-                           "To disable explicit multipass set -DHIPSYCL_NO_DEVICE_MANGLER=ON. "
-                           "This also disables simultaneous compilation for CUDA and HIP devices.")
-      endif()
     endif()
   endif()
-  if(${LLVM_VERSION_MAJOR} LESS 11 AND ${WITH_ACCELERATED_CPU})
-    message(WARNING "clang version too old (${LLVM_VERSION_MAJOR} < 11) to be used with CPU acceleration support, disabling WITH_ACCELERATED_CPU")
-    set(WITH_ACCELERATED_CPU false)
-  endif()
-  if(${LLVM_VERSION_MAJOR} LESS 14 AND ${WITH_SSCP_COMPILER})
-    message(WARNING "clang version too old (${LLVM_VERSION_MAJOR} < 14) to be used with SSCP compiler, disabling WITH_SSCP_COMPILER")
-    set(WITH_SSCP_COMPILER false)
-  endif()
-  if(${LLVM_VERSION_MAJOR} LESS 14 AND ${WITH_STDPAR_COMPILER})
-    message(WARNING "clang version too old (${LLVM_VERSION_MAJOR} < 14) to be used with C++ standard parallelism support, disabling WITH_STDPAR_COMPILER")
-    set(WITH_STDPAR_COMPILER false)
-  endif()
+  
   if(${LLVM_VERSION_MAJOR} LESS 14)
-    set(WITH_REFLECTION_BUILTINS OFF)
+    if(${WITH_ACCELERATED_CPU} OR ${WITH_SSCP_COMPILER} OR ${WITH_STDPAR_COMPILER})
+      message(WARNING "clang version too old (${LLVM_VERSION_MAJOR} < 14) to be used with advanced AdaptiveCpp compiler features, disabling WITH_STDPAR_COMPILER, WITH_ACCELERATED_CPU, WITH_SSCP_COMPILER")
+      set(WITH_REFLECTION_BUILTINS OFF)
+      set(WITH_STDPAR_COMPILER false)
+      set(WITH_SSCP_COMPILER false)
+      set(WITH_ACCELERATED_CPU false)
+    endif()
   endif()
   message(STATUS "Using clang include directory: ${CLANG_INCLUDE_PATH}")
   
@@ -308,7 +356,6 @@ endif()
 #Use add_definitions for now for older cmake versions
 cmake_policy(SET CMP0005 NEW)
 add_definitions(-DHIPSYCL_DEBUG_LEVEL=${HIPSYCL_DEBUG_LEVEL})
-option(HIPSYCL_NO_DEVICE_MANGLER "Disable the use of DeviceMangler. necessary for LLVM 13 distributed with the rocm packages." OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

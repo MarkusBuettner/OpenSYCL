@@ -1,30 +1,13 @@
 /*
- * This file is part of hipSYCL, a SYCL implementation based on CUDA/HIP
+ * This file is part of AdaptiveCpp, an implementation of SYCL and C++ standard
+ * parallelism for CPUs and GPUs.
  *
- * Copyright (c) 2023 Aksel Alpay
- * All rights reserved.
+ * Copyright The AdaptiveCpp Contributors
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * AdaptiveCpp is released under the BSD 2-Clause "Simplified" License.
+ * See file LICENSE in the project root for full license details.
  */
-
+// SPDX-License-Identifier: BSD-2-Clause
 #ifndef HIPSYCL_PSTL_SYCL_GLUE_HPP
 #define HIPSYCL_PSTL_SYCL_GLUE_HPP
 
@@ -70,7 +53,7 @@ inline uint64_t get_time_now() {
 inline sycl::queue construct_default_queue() {
   return sycl::queue{hipsycl::sycl::property_list{
         hipsycl::sycl::property::queue::in_order{},
-        hipsycl::sycl::property::queue::hipSYCL_coarse_grained_events{}}};
+        hipsycl::sycl::property::queue::AdaptiveCpp_coarse_grained_events{}}};
 }
 
 class stdpar_tls_runtime {
@@ -79,7 +62,16 @@ private:
       : _queue{construct_default_queue()},
         _device_scratch_cache{algorithms::util::allocation_type::device},
         _shared_scratch_cache{algorithms::util::allocation_type::shared},
-        _host_scratch_cache{algorithms::util::allocation_type::host} {}
+        _host_scratch_cache{algorithms::util::allocation_type::host} {
+          auto dev = _queue.get_device().AdaptiveCpp_device_id();
+          auto* be = _queue.get_context().AdaptiveCpp_runtime()->backends().get(
+              dev.get_backend());
+          if (be->get_hardware_manager()
+                  ->get_device(dev.get_id())
+                  ->has(rt::device_support_aspect::
+                            work_item_independent_forward_progress))
+            _has_independent_work_item_forward_progress = true;
+        }
 
   ~stdpar_tls_runtime() {
     _device_scratch_cache.purge();
@@ -92,6 +84,7 @@ private:
   algorithms::util::allocation_cache _shared_scratch_cache;
   algorithms::util::allocation_cache _host_scratch_cache;
   int _outstanding_offloaded_operations = 0;
+  bool _has_independent_work_item_forward_progress = false;
 
   offload_heuristic_db _offload_db;
   std::vector<uint64_t, libc_allocator<uint64_t>> _instrumented_ops_in_batch;
@@ -119,6 +112,10 @@ public:
     return _queue;
   }
 
+  bool device_has_work_item_independent_forward_progress() const {
+    return _has_independent_work_item_forward_progress;
+  }
+
   int get_num_outstanding_operations() const {
     return _outstanding_offloaded_operations;
   }
@@ -139,7 +136,7 @@ public:
   }
 
   void finalize_offloading_batch() noexcept {
-#ifndef __HIPSYCL_STDPAR_UNCONDITIONAL_OFFLOAD__
+#ifndef __ACPP_STDPAR_UNCONDITIONAL_OFFLOAD__
     uint64_t batch_end = get_time_now();
     double mean_time = static_cast<double>(batch_end - _batch_start_timestamp) /
                        _instrumented_ops_in_batch.size();
@@ -174,7 +171,7 @@ public:
   algorithms::util::allocation_group make_scratch_group() {
     algorithms::util::allocation_cache& cache = get_scratch_cache<AT>();
     return algorithms::util::allocation_group{
-        &cache, get_queue().get_device().hipSYCL_device_id()};
+        &cache, get_queue().get_device().AdaptiveCpp_device_id()};
   }
 
   static stdpar_tls_runtime& get() {
@@ -192,8 +189,8 @@ public:
 
 }
 
-#if defined(__clang__) && defined(HIPSYCL_LIBKERNEL_IS_DEVICE_PASS_HOST) &&    \
-    !defined(__HIPSYCL_STDPAR_ASSUME_SYSTEM_USM__)
+#if defined(__clang__) && defined(ACPP_LIBKERNEL_IS_DEVICE_PASS_HOST) &&    \
+    !defined(__ACPP_STDPAR_ASSUME_SYSTEM_USM__)
 
 namespace hipsycl::stdpar::detail {
 

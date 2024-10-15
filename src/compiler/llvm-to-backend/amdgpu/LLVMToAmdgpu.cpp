@@ -1,34 +1,18 @@
 /*
- * This file is part of hipSYCL, a SYCL implementation based on CUDA/HIP
+ * This file is part of AdaptiveCpp, an implementation of SYCL and C++ standard
+ * parallelism for CPUs and GPUs.
  *
- * Copyright (c) 2019-2022 Aksel Alpay
- * All rights reserved.
+ * Copyright The AdaptiveCpp Contributors
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * AdaptiveCpp is released under the BSD 2-Clause "Simplified" License.
+ * See file LICENSE in the project root for full license details.
  */
-
+// SPDX-License-Identifier: BSD-2-Clause
 #include "hipSYCL/compiler/llvm-to-backend/amdgpu/LLVMToAmdgpu.hpp"
 #include "hipSYCL/compiler/llvm-to-backend/AddressSpaceInferencePass.hpp"
 #include "hipSYCL/compiler/llvm-to-backend/Utils.hpp"
 #include "hipSYCL/compiler/sscp/IRConstantReplacer.hpp"
+#include "hipSYCL/compiler/utils/LLVMUtils.hpp"
 #include "hipSYCL/glue/llvm-sscp/s2_ir_constants.hpp"
 #include "hipSYCL/common/filesystem.hpp"
 #include "hipSYCL/common/debug.hpp"
@@ -40,6 +24,7 @@
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/CallingConv.h>
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
@@ -98,7 +83,7 @@ using optional_t = std::optional<T>;
 bool getCommandOutput(const std::string &Program, const llvm::SmallVector<std::string> &Invocation,
                       std::string &Out) {
 
-  auto OutputFile = llvm::sys::fs::TempFile::create("hipsycl-sscp-query-%%%%%%.txt");
+  auto OutputFile = llvm::sys::fs::TempFile::create("acpp-sscp-query-%%%%%%.txt");
 
   std::string OutputFilename = OutputFile->TmpName;
 
@@ -142,7 +127,8 @@ public:
                                           const std::string& DeviceLibsPath,
                                           const std::string& TargetDevice,
                                           std::vector<std::string>& BitcodeFiles,
-                                          bool IsFastMath = false) {
+                                          bool IsFastMath = false,
+                                          int ForceCodeObjectModel = -1) {
     
 
     llvm::SmallVector<std::string> Invocation;
@@ -163,10 +149,12 @@ public:
       "--hip-link",
       "-###"
     };
-    if(IsFastMath)
+    if(IsFastMath) {
       Invocation.push_back("-ffast-math");
+      Invocation.push_back("-fno-hip-fp32-correctly-rounded-divide-sqrt");
+    }
     
-    if(!llvm::StringRef{ClangPath}.endswith("hipcc")) {
+    if(!llvmutils::ends_with(llvm::StringRef{ClangPath}, "hipcc")) {
       // Normally we try to use hipcc. However, when that fails,
       // we may have fallen back to clang. In that case we may
       // have to additionally set --rocm-path and --rocm-device-lib-path.
@@ -204,6 +192,13 @@ public:
           CurrentComponent = CurrentComponent.substr(1);
         if(CurrentComponent.find('\"') != std::string::npos)
           CurrentComponent = CurrentComponent.substr(0, CurrentComponent.size() - 1);
+
+        auto OclcABIPos = CurrentComponent.find("oclc_abi_version");
+        if(ForceCodeObjectModel > 0 &&  (OclcABIPos != std::string::npos)) {
+          CurrentComponent.erase(OclcABIPos);
+          CurrentComponent += "oclc_abi_version_" + std::to_string(ForceCodeObjectModel)+".bc";
+        }
+        
         BitcodeFiles.push_back(CurrentComponent);
       } else if(CurrentComponent == "\"-mlink-builtin-bitcode\"")
         ConsumeNext = true;
@@ -249,15 +244,7 @@ bool LLVMToAmdgpuTranslator::toBackendFlavor(llvm::Module &M, PassHandler& PH) {
   for(auto KernelName : KernelNames) {
     HIPSYCL_DEBUG_INFO << "LLVMToAmdgpu: Setting up kernel " << KernelName << "\n";
     if(auto* F = M.getFunction(KernelName)) {
-      F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
-
-      if(KnownGroupSizeX != 0 && KnownGroupSizeY != 0 && KnownGroupSizeZ != 0) {
-        int FlatGroupSize = KnownGroupSizeX * KnownGroupSizeY * KnownGroupSizeZ;
-        
-        if(!F->hasFnAttribute("amdgpu-flat-work-group-size"))
-          F->addFnAttr("amdgpu-flat-work-group-size",
-                     std::to_string(FlatGroupSize) + "," + std::to_string(FlatGroupSize));
-      }
+      applyKernelProperties(F);
     }
   }
 
@@ -283,6 +270,16 @@ bool LLVMToAmdgpuTranslator::toBackendFlavor(llvm::Module &M, PassHandler& PH) {
   }
   llvm::AlwaysInlinerPass AIP;
   AIP.run(M, *PH.ModuleAnalysisManager);
+
+  if(llvm::Metadata* MD  = M.getModuleFlag("amdgpu_code_object_version")) {
+    if(auto* V = llvm::cast<llvm::ValueAsMetadata>(MD)) {
+      if (llvm::ConstantInt* CI = llvm::dyn_cast<llvm::ConstantInt>(V->getValue())) {
+        if (CI->getBitWidth() <= 32) {
+          CodeObjectModelVersion = CI->getSExtValue();
+        }
+      }
+    }
+  }
 
   return true;
 }
@@ -359,7 +356,7 @@ bool LLVMToAmdgpuTranslator::hiprtcJitLink(const std::string &Bitcode, std::stri
 
   std::vector<std::string> DeviceLibs;
   RocmDeviceLibs::determineRequiredDeviceLibs(RocmPath, RocmDeviceLibsPath, TargetDevice,
-                                              DeviceLibs, IsFastMath);
+                                              DeviceLibs, IsFastMath, CodeObjectModelVersion);
   for(const auto& Lib : DeviceLibs) {
     HIPSYCL_DEBUG_INFO << "LLVMToAmdgpu: Linking with bitcode file: " << Lib << "\n";
     addBitcodeFile(Lib);
@@ -418,9 +415,9 @@ bool LLVMToAmdgpuTranslator::clangJitLink(llvm::Module& FlavoredModule, std::str
   for(const auto& BC : DeviceLibs)
     addBitcodeFile(BC);
 
-  auto InputFile = llvm::sys::fs::TempFile::create("hipsycl-sscp-amdgpu-%%%%%%.bc");
-  auto OutputFile = llvm::sys::fs::TempFile::create("hipsycl-sscp-amdgpu-%%%%%%.hipfb");
-  auto DummyFile = llvm::sys::fs::TempFile::create("hipsycl-sscp-amdgpu-dummy-%%%%%%.cpp");
+  auto InputFile = llvm::sys::fs::TempFile::create("acpp-sscp-amdgpu-%%%%%%.bc");
+  auto OutputFile = llvm::sys::fs::TempFile::create("acpp-sscp-amdgpu-%%%%%%.hipfb");
+  auto DummyFile = llvm::sys::fs::TempFile::create("acpp-sscp-amdgpu-dummy-%%%%%%.cpp");
 
   std::string OutputFilename = OutputFile->TmpName;
 
@@ -509,6 +506,34 @@ AddressSpaceMap LLVMToAmdgpuTranslator::getAddressSpaceMap() const {
   ASMap[AddressSpace::ConstantGlobalVariableDefault] = 4;
 
   return ASMap;
+}
+
+void LLVMToAmdgpuTranslator::migrateKernelProperties(llvm::Function* From, llvm::Function* To) {
+  removeKernelProperties(From);
+  applyKernelProperties(To);
+}
+
+void LLVMToAmdgpuTranslator::applyKernelProperties(llvm::Function* F) {
+  F->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
+
+  if (KnownGroupSizeX != 0 && KnownGroupSizeY != 0 && KnownGroupSizeZ != 0) {
+    int FlatGroupSize = KnownGroupSizeX * KnownGroupSizeY * KnownGroupSizeZ;
+
+    if (!F->hasFnAttribute("amdgpu-flat-work-group-size"))
+      F->addFnAttr("amdgpu-flat-work-group-size",
+                   std::to_string(FlatGroupSize) + "," + std::to_string(FlatGroupSize));
+  }
+}
+
+void LLVMToAmdgpuTranslator::removeKernelProperties(llvm::Function* F) {
+  if(F->getCallingConv() == llvm::CallingConv::AMDGPU_KERNEL) {
+    F->setCallingConv(llvm::CallingConv::C);
+    for(int i = 0; i < F->getFunctionType()->getNumParams(); ++i)
+      if(F->getArg(i)->hasAttribute(llvm::Attribute::ByRef))
+        F->getArg(i)->removeAttr(llvm::Attribute::ByRef);
+  }
+  if(F->hasFnAttribute("amdgpu-flat-work-group-size"))
+    F->removeFnAttr("amdgpu-flat-work-group-size");
 }
 
 std::unique_ptr<LLVMToBackendTranslator>

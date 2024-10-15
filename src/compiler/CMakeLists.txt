@@ -45,10 +45,12 @@ if(WITH_SSCP_COMPILER)
   set(SSCP_COMPILER 
     sscp/KernelOutliningPass.cpp
     sscp/IRConstantReplacer.cpp
+    sscp/DynamicFunctionSupport.cpp
     sscp/TargetSeparationPass.cpp
     sscp/HostKernelNameExtractionPass.cpp
     sscp/AggregateArgumentExpansionPass.cpp
-    sscp/StdBuiltinRemapperPass.cpp)
+    sscp/StdBuiltinRemapperPass.cpp
+    sscp/StdAtomicRemapperPass.cpp)
   add_definitions(-DHIPSYCL_WITH_SSCP_COMPILER)
 else()
   set(SSCP_COMPILER "")
@@ -59,15 +61,16 @@ if(WITH_STDPAR_COMPILER)
   set(STDPAR_COMPILER
     stdpar/MallocToUSM.cpp
     stdpar/SyncElision.cpp)
-    add_definitions(-DHIPSYCL_WITH_STDPAR_COMPILER)
+  add_definitions(-DHIPSYCL_WITH_STDPAR_COMPILER)
 else()
   set(STDPAR_COMPILER "")
 endif()
 
 if(WITH_REFLECTION_BUILTINS)
   set(REFLECTION_BUILTINS
-    reflection/IntrospectStructPass.cpp)
-    add_definitions(-DHIPSYCL_WITH_REFLECTION_BUILTINS)
+    reflection/IntrospectStructPass.cpp
+    reflection/FunctionNameExtractionPass.cpp)
+  add_definitions(-DHIPSYCL_WITH_REFLECTION_BUILTINS)
 else()
   set(REFLECTION_BUILTINS "")
 endif()
@@ -99,14 +102,14 @@ function(configure_target)
     ${CMAKE_BINARY_DIR}/include)
   target_include_directories(${target} SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
 
+  separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
   target_compile_definitions(${target} PRIVATE
-    ${LLVM_DEFINITIONS} -DHIPSYCL_COMPILER_COMPONENT)
+    ${LLVM_DEFINITIONS_LIST})
+  target_compile_definitions(${target} PRIVATE
+    -DHIPSYCL_COMPILER_COMPONENT)
 
   if(ROCM_VERSION_MAJOR)
     target_compile_definitions(${target} PRIVATE -DROCM_CLANG_VERSION_MAJOR=${ROCM_VERSION_MAJOR} -DROCM_CLANG_VERSION_MINOR=${ROCM_VERSION_MINOR} -DROCM_CLANG_VERSION_PATCH=${ROCM_VERSION_PATCH})
-  endif()
-  if(HIPSYCL_NO_DEVICE_MANGLER)
-    target_compile_definitions(${target} PRIVATE -DHIPSYCL_NO_DEVICE_MANGLER)
   endif()
 
   if(NOT ${LLVM_ENABLE_EH})

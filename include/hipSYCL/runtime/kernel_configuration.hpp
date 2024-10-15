@@ -1,30 +1,13 @@
 /*
- * This file is part of hipSYCL, a SYCL implementation based on CUDA/HIP
+ * This file is part of AdaptiveCpp, an implementation of SYCL and C++ standard
+ * parallelism for CPUs and GPUs.
  *
- * Copyright (c) 2018-2022 Aksel Alpay
- * All rights reserved.
+ * Copyright The AdaptiveCpp Contributors
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * AdaptiveCpp is released under the BSD 2-Clause "Simplified" License.
+ * See file LICENSE in the project root for full license details.
  */
-
+// SPDX-License-Identifier: BSD-2-Clause
 #ifndef HIPSYCL_KERNEL_CONFIGURATION_HPP
 #define HIPSYCL_KERNEL_CONFIGURATION_HPP
 
@@ -40,8 +23,10 @@
 #include <cassert>
 #include <optional>
 #include <unordered_map>
+#include <string_view>
 
 #include "hipSYCL/common/stable_running_hash.hpp"
+#include "hipSYCL/glue/llvm-sscp/fcall_specialization.hpp"
 
 
 namespace hipsycl {
@@ -179,6 +164,11 @@ public:
         std::make_pair(param_index, buffer_value));
   }
 
+  void set_function_call_specialization_config(
+      int param_index, glue::sscp::fcall_config_kernel_property_t config) {
+    _function_call_specializations.push_back(config);
+  }
+
   void set_build_option(kernel_build_option option, const std::string& value) {
     int_or_string ios;
     ios.string_value = value;
@@ -252,6 +242,13 @@ public:
                         &entry.second, sizeof(entry.second));
     }
 
+    for(int i = 0; i < _function_call_specializations.size(); ++i) {
+      uint64_t numeric_option_id = static_cast<uint64_t>(i) | (1ull << 35);
+      uint64_t config_id = _function_call_specializations[i].value->unique_hash;
+      add_entry_to_hash(result, &numeric_option_id, sizeof(numeric_option_id),
+                        &config_id, sizeof(config_id));
+    }
+
     return result;
   }
 
@@ -271,12 +268,20 @@ public:
     return _specialized_kernel_args;
   }
 
+  const auto& function_call_specialization_config() const {
+    return _function_call_specializations;
+  }
+
 private:
   static const void* data_ptr(const char* data) {
     return data_ptr(std::string{data});
   }
 
   static const void* data_ptr(const std::string& data) {
+    return data.data();
+  }
+
+  static const void* data_ptr(std::string_view data) {
     return data.data();
   }
 
@@ -295,6 +300,10 @@ private:
   }
 
   static std::size_t data_size(const std::string& data) {
+    return data.size();
+  }
+
+  static std::size_t data_size(std::string_view data) {
     return data.size();
   }
 
@@ -323,6 +332,8 @@ private:
   std::vector<kernel_build_flag> _build_flags;
   std::vector<std::pair<kernel_build_option, int_or_string>> _build_options;
   std::vector<std::pair<int, uint64_t>> _specialized_kernel_args;
+  std::vector<glue::sscp::fcall_config_kernel_property_t>
+      _function_call_specializations;
 
   id_type _base_configuration_result = {};
 };

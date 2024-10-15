@@ -103,10 +103,12 @@ add_executable(sycl_tests
   sycl/sycl_test_suite.cpp 
   sycl/usm.cpp
   sycl/vec.cpp
-  sycl/queue.cpp)
+  sycl/queue.cpp
+  sycl/multi_ptr.cpp
+)
 
 # Also test instant submission mode
-target_compile_definitions(sycl_tests PRIVATE -DHIPSYCL_ALLOW_INSTANT_SUBMISSION=1)
+target_compile_definitions(sycl_tests PRIVATE -DACPP_ALLOW_INSTANT_SUBMISSION=1)
 target_include_directories(sycl_tests PRIVATE ${Boost_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR} ${OpenMP_CXX_INCLUDE_DIRS})
 add_sycl_to_target(TARGET sycl_tests)
 
@@ -120,12 +122,13 @@ target_link_libraries(rt_tests PRIVATE Threads::Threads)
 add_sycl_to_target(TARGET rt_tests)
 
 # We cannot enable building them unconditionally at the moment,
-# because --hipsycl-stdpar is not compatible with all --hipsycl-targets
+# because --acpp-stdpar is not compatible with all --acpp-targets
 # values. Enabling them in all cases would break some existing test flows.
 if(WITH_PSTL_TESTS)
   add_executable(pstl_tests 
     pstl/pstl_test_suite.cpp
     pstl/std_math.cpp
+    pstl/std_atomic.cpp
     pstl/all_of.cpp
     pstl/any_of.cpp
     pstl/copy.cpp
@@ -144,6 +147,7 @@ if(WITH_PSTL_TESTS)
     pstl/replace_if.cpp
     pstl/replace_copy.cpp
     pstl/replace_copy_if.cpp
+    pstl/sort.cpp
     pstl/transform.cpp
     pstl/transform_reduce.cpp
     pstl/pointer_validation.cpp
