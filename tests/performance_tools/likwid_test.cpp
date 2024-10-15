@@ -117,7 +117,6 @@ public:
     }
 
     virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
-	std::cout << "OMP thread start\n";
         resultsPerGroup.at(kernel_type_info).lastStartTime[omp_get_thread_num()] = clock_type::now();
     }
 
@@ -214,7 +213,7 @@ int main() {
     constexpr size_t repetitions = 32;
 
     std::shared_ptr<LikwidPerftool> likwid = std::make_shared<LikwidPerftool>("FLOPS_SP");
-    sycl::queue q(sycl::property_list{sycl::property::queue::hipSYCL_instrumentation(likwid)});
+    sycl::queue q(sycl::property_list{sycl::property::queue::AdaptiveCpp_instrumentation(likwid)});
 
     sycl::buffer<float> a(len);
     sycl::buffer<float> b(len);

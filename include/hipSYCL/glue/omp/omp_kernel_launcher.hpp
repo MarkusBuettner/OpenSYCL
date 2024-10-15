@@ -135,7 +135,7 @@ inline void parallel_for_kernel(Function f,
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
-  parallel_invocation([=](){
+  parallel_invocation([=, &perf_api_guard](){
     perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
     host::iterate_range_omp_for(execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
@@ -155,7 +155,7 @@ inline void parallel_for_kernel_offset(Function f,
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
 
-  parallel_invocation([=](){
+  parallel_invocation([=, &perf_api_guard](){
     perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
     host::iterate_range_omp_for(offset, execution_range, [&](sycl::id<Dim> idx) {
       auto this_item =
@@ -175,7 +175,7 @@ inline void parallel_for_ndrange_kernel(
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1 - 3 are supported.");
 
-  parallel_invocation([=](){
+  parallel_invocation([=, &perf_api_guard](){
     perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
     if(num_groups.size() == 0 || local_size.size() == 0)
       return;

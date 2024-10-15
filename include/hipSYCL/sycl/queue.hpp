@@ -116,8 +116,8 @@ struct AdaptiveCpp_retargetable : public detail::queue_property {};
 using hipSYCL_coarse_grained_events = AdaptiveCpp_coarse_grained_events;
 using hipSYCL_priority = AdaptiveCpp_priority;
 
-struct hipSYCL_instrumentation : public detail::queue_property {
-  hipSYCL_instrumentation(std::shared_ptr<ext::performance_tool_api> instrumenter)
+struct AdaptiveCpp_instrumentation : public detail::queue_property {
+  AdaptiveCpp_instrumentation(std::shared_ptr<ext::performance_tool_api> instrumenter)
   : instrumentation{std::move(instrumenter)} {}
 
   std::shared_ptr<ext::performance_tool_api> instrumentation;
@@ -1125,10 +1125,10 @@ private:
       _impl->default_hints.set_hint(
           rt::hints::coarse_grained_synchronization{});
     }
-    if (this->has_property<property::queue::hipSYCL_instrumentation>()) {
-      _default_hints->set_hint(
+    if (this->has_property<property::queue::AdaptiveCpp_instrumentation>()) {
+      _impl->default_hints.set_hint(
               rt::hints::performance_tool_api{
-                      this->get_property<property::queue::hipSYCL_instrumentation>().instrumentation});
+                      this->get_property<property::queue::AdaptiveCpp_instrumentation>().instrumentation});
     }
 
     if(this->has_property<property::queue::AdaptiveCpp_retargetable>()) {
@@ -1168,10 +1168,10 @@ private:
 
     _impl->kernel_cache = rt::kernel_cache::get();
 
-    if (this->has_property<property::queue::hipSYCL_instrumentation>()) {
+    if (this->has_property<property::queue::AdaptiveCpp_instrumentation>()) {
       submit([&](handler& h) {
         h.hipSYCL_enqueue_custom_operation([&](auto interop_hdlr) {
-          this->get_property<property::queue::hipSYCL_instrumentation>().instrumentation->init(detail::extract_rt_device(this->get_device()));
+          this->get_property<property::queue::AdaptiveCpp_instrumentation>().instrumentation->init(detail::extract_rt_device(this->get_device()));
         });
       }).wait();
     }
