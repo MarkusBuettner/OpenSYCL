@@ -65,7 +65,7 @@ class LikwidPerftool : public hipsycl::ext::performance_tool_api {
     char const *event_group;
     int *hwthreads;
     LikwidPerfctrResult *results;
-    std::unordered_map<std::type_index, LikwidPerfctrResult> resultsPerGroup;
+    std::unordered_map<std::string, LikwidPerfctrResult> resultsPerGroup;
 public:
     LikwidPerftool(char const *event_group) : event_group(event_group) {
         nthreads = omp_get_max_threads();
@@ -109,28 +109,45 @@ public:
 
     virtual void kernel_start(std::type_info const& kernel_type_info) override {
         if (groupId >= 0) {
-            resultsPerGroup.try_emplace(kernel_type_info, nthreads, nevents, nmetrics);
+            resultsPerGroup.try_emplace(kernel_type_info.name(), nthreads, nevents, nmetrics);
+        }
+    }
+
+    virtual void kernel_start(std::string_view kernel_type_info) override {
+        if (groupId >= 0) {
+            resultsPerGroup.try_emplace(std::string(kernel_type_info), nthreads, nevents, nmetrics);
         }
     }
 
     virtual void kernel_end(std::type_info const& kernel_type_info) override {
     }
 
+    virtual void kernel_end(std::string_view kernel_type_info) override {
+    }
+
     virtual void omp_thread_start(std::type_info const& kernel_type_info) override {
-        resultsPerGroup.at(kernel_type_info).lastStartTime[omp_get_thread_num()] = clock_type::now();
+        resultsPerGroup.at(kernel_type_info.name()).lastStartTime[omp_get_thread_num()] = clock_type::now();
+    }
+
+    virtual void omp_thread_start(std::string_view kernel_type_info) override {
+        resultsPerGroup.at(std::string(kernel_type_info)).lastStartTime[omp_get_thread_num()] = clock_type::now();
     }
 
     virtual void omp_thread_end(std::type_info const& kernel_type_info) override {
+        omp_thread_end(kernel_type_info.name());
+    }
+
+    virtual void omp_thread_end(std::string_view kernel_type_info) override {
         int thread_num = omp_get_thread_num();
         perfmon_readCountersCpu(hwthreads[thread_num]);
-        resultsPerGroup.at(kernel_type_info).times[thread_num] +=
-                clock_type::now() - resultsPerGroup.at(kernel_type_info).lastStartTime[thread_num];
-        resultsPerGroup.at(kernel_type_info).callCounts[thread_num]++;
+        auto& r = resultsPerGroup.at(std::string(kernel_type_info));
+        r.times[thread_num] +=
+                clock_type::now() - r.lastStartTime[thread_num];
+        r.callCounts[thread_num]++;
         for (int i = 0; i < results->num_events; i++) {
             double result = perfmon_getLastResult(groupId, i, thread_num);
             results->results[thread_num][i] += result;
-            auto& groupData = resultsPerGroup.at(kernel_type_info);
-            groupData.results[thread_num][i] += result;
+            r.results[thread_num][i] += result;
         }
     }
 
@@ -150,7 +167,7 @@ public:
 
     void print_group_results() {
         for (auto& grp: resultsPerGroup) {
-            std::cout << "\n Results for group " << grp.first.name() << "\n";
+            std::cout << "\n Results for group " << grp.first << "\n";
             for (int j = 0; j < grp.second.num_events; j++) {
                 char *event_name = perfmon_getEventName(groupId, j);
                 std::cout << "Event " << event_name << ": \t\t";
@@ -167,7 +184,7 @@ public:
         file << nthreads << " " << resultsPerGroup.size() << " 1\n";
         int regionId = 0;
         for (auto&& region: resultsPerGroup) {
-            file << regionId << ":" << region.first.name() << "-0\n";
+            file << regionId << ":" << region.first << "-0\n";
             regionId++;
         }
         regionId = 0;

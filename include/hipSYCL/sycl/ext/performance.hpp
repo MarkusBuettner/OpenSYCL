@@ -44,19 +44,25 @@ namespace hipsycl::ext {
          * (similar to SYCL event::command_start).
          */
         virtual void kernel_start(std::type_info const& kernel_type_info) = 0;
+        virtual void kernel_start(std::string_view sscp_kernel_name) = 0;
+
         /**
          * This function is called once when the kernel has finished executing (similar to SYCL event::command_end).
          */
         virtual void kernel_end(std::type_info const& kernel_type_info) = 0;
+        virtual void kernel_end(std::string_view sscp_kernel_name) = 0;
 
         /**
          * This function is called once at the start of each OpenMP thread.
          */
         virtual void omp_thread_start(std::type_info const& kernel_type_info) = 0;
+        virtual void omp_thread_start(std::string_view sscp_kernel_name) = 0;
+
         /**
          * This function is called once at the end of each OpenMP thread.
          */
         virtual void omp_thread_end(std::type_info const& kernel_type_info) = 0;
+        virtual void omp_thread_end(std::string_view sscp_kernel_name) = 0;
     };
 
 }

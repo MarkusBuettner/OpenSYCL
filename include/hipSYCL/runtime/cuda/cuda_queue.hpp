@@ -71,7 +71,7 @@ public:
                                std::string_view kernel_name,
                                const rt::hcf_kernel_info* kernel_info,
                                const kernel_configuration& config,
-                               const ext::performance_tool_api& perf_api) override;
+                               ext::performance_tool_api& perf_api) override;
 private:
   cuda_queue* _queue;
 };

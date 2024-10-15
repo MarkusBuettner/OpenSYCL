@@ -47,7 +47,7 @@ public:
                                std::string_view kernel_name,
                                const rt::hcf_kernel_info* kernel_info,
                                const kernel_configuration& config,
-                               const hipsycl::ext::performance_tool_api& perf_api = ext::performance_api_guard{nullptr}) = 0;
+                               hipsycl::ext::performance_tool_api& perf_api) = 0;
 
   virtual rt::range<3> select_group_size(const rt::range<3> &global_range,
                                          const rt::range<3> &group_size) const {

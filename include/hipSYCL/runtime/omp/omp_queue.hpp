@@ -39,7 +39,7 @@ public:
                                std::string_view kernel_name,
                                const rt::hcf_kernel_info* kernel_info,
                                const kernel_configuration& config,
-                               const ext::performance_tool_api& perf_api) override;
+                               ext::performance_tool_api& perf_api) override;
   
   virtual rt::range<3> select_group_size(const rt::range<3> &num_groups,
                                          const rt::range<3> &group_size) const override;
@@ -82,7 +82,7 @@ public:
       const rt::range<3> &group_size, unsigned local_mem_size, void **args,
       std::size_t *arg_sizes, std::size_t num_args,
       const kernel_configuration &config,
-      const ext::performance_tool_api& perf_api);
+      ext::performance_tool_api& perf_api);
 
   worker_thread& get_worker();
 private:

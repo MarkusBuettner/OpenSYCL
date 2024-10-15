@@ -348,12 +348,14 @@ public:
       std::array<const void*, 1> args{launch_config.kernel_args.data()};
       std::size_t arg_size = launch_config.kernel_args.size();
 
+      hipsycl::ext::performance_api_guard perf_api_guard(node);
+
       return invoker->submit_kernel(
           *kernel_op, launch_config.sscp_hcf_object_id, num_groups,
           selected_group_size, launch_config.local_mem_size,
           const_cast<void **>(args.data()), &arg_size, args.size(),
           launch_config.sscp_kernel_id, launch_config.kernel_info,
-          kernel_config);
+          kernel_config, perf_api_guard);
     }
   }
 

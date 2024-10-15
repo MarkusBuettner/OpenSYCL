@@ -64,7 +64,19 @@ public:
     }
   }
 
+  virtual void kernel_start(std::string_view sscp_kernel_name) override {
+    if (_enable) {
+      _performance_api->kernel_start(sscp_kernel_name);
+    }
+  }
+
   virtual void kernel_end(std::type_info const &kernel_type_info) override {
+    if (_enable) {
+      _performance_api->kernel_end(kernel_type_info);
+    }
+  }
+
+  virtual void kernel_end(std::string_view kernel_type_info) override {
     if (_enable) {
       _performance_api->kernel_end(kernel_type_info);
     }
@@ -77,7 +89,20 @@ public:
     }
   }
 
+  virtual void
+  omp_thread_start(std::string_view kernel_type_info) override {
+    if (_enable) {
+      _performance_api->omp_thread_start(kernel_type_info);
+    }
+  }
+
   virtual void omp_thread_end(std::type_info const &kernel_type_info) override {
+    if (_enable) {
+      _performance_api->omp_thread_end(kernel_type_info);
+    }
+  }
+
+  virtual void omp_thread_end(std::string_view kernel_type_info) override {
     if (_enable) {
       _performance_api->omp_thread_end(kernel_type_info);
     }

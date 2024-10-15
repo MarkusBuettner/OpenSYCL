@@ -190,8 +190,8 @@ result
 launch_kernel_from_so(omp_sscp_executable_object::omp_sscp_kernel *kernel,
                       const rt::range<3> &num_groups,
                       const rt::range<3> &local_size, unsigned shared_memory,
-                      void **kernel_args,
-                      const ext::performance_tool_api& perf_api) {
+                      void **kernel_args, std::string_view kernel_name,
+                      ext::performance_tool_api& perf_api) {
   if (num_groups.size() == 1 && shared_memory == 0) {
     omp_sscp_executable_object::work_group_info info{
         num_groups, rt::id<3>{0, 0, 0}, local_size, nullptr};
@@ -209,6 +209,7 @@ launch_kernel_from_so(omp_sscp_executable_object::omp_sscp_kernel *kernel,
 #pragma omp parallel
 #endif
   {
+    perf_api.omp_thread_start(kernel_name);
     // get page aligned local memory from heap
     static thread_local std::vector<char> local_memory;
 
@@ -228,6 +229,7 @@ launch_kernel_from_so(omp_sscp_executable_object::omp_sscp_kernel *kernel,
         }
       }
     }
+    perf_api.omp_thread_end(kernel_name);
   }
   return make_success();
 }
@@ -386,7 +388,7 @@ result omp_queue::submit_sscp_kernel_from_code_object(
     const rt::range<3> &num_groups, const rt::range<3> &group_size,
     unsigned local_mem_size, void **args, std::size_t *arg_sizes,
     std::size_t num_args, const kernel_configuration &initial_config,
-    const ext::performance_tool_api& perf_api) {
+    ext::performance_tool_api& perf_api) {
 #ifdef HIPSYCL_WITH_SSCP_COMPILER
   common::spin_lock_guard lock{_sscp_submission_spin_lock};
 
@@ -486,8 +488,11 @@ result omp_queue::submit_sscp_kernel_from_code_object(
       static_cast<const omp_sscp_executable_object *>(obj)->get_kernel(
           kernel_name);
 
-  return launch_kernel_from_so(kernel, num_groups, group_size, local_mem_size,
-                               _arg_mapper.get_mapped_args(), perf_api);
+  perf_api.kernel_start(kernel_name);
+  auto result = launch_kernel_from_so(kernel, num_groups, group_size, local_mem_size,
+                               _arg_mapper.get_mapped_args(), kernel_name, perf_api);
+  perf_api.kernel_end(kernel_name);
+  return result;
 
 #else
   return make_error(
@@ -595,7 +600,7 @@ result omp_sscp_code_object_invoker::submit_kernel(
     std::size_t num_args, std::string_view kernel_name,
     const rt::hcf_kernel_info *kernel_info,
     const kernel_configuration &config,
-    const ext::performance_tool_api& perf_api) {
+    ext::performance_tool_api& perf_api) {
 
   return _queue->submit_sscp_kernel_from_code_object(
       op, hcf_object, kernel_name, kernel_info, num_groups, group_size,
