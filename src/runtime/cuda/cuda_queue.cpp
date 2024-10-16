@@ -770,7 +770,8 @@ result cuda_sscp_code_object_invoker::submit_kernel(
     unsigned local_mem_size, void **args, std::size_t *arg_sizes,
     std::size_t num_args, std::string_view kernel_name,
     const rt::hcf_kernel_info *kernel_info,
-    const kernel_configuration &config) {
+    const kernel_configuration &config,
+    ext::performance_tool_api& perf_api) {
 
   return _queue->submit_sscp_kernel_from_code_object(
       op, hcf_object, kernel_name, kernel_info, num_groups, group_size,

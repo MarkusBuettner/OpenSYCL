@@ -24,7 +24,8 @@ result ocl_sscp_code_object_invoker::submit_kernel(
     unsigned int local_mem_size, void **args, std::size_t *arg_sizes,
     std::size_t num_args, std::string_view kernel_name,
     const rt::hcf_kernel_info *kernel_info,
-    const kernel_configuration &config) {
+    const kernel_configuration &config,
+    ext::performance_tool_api& perf_api) {
 
   assert(_queue);
 
