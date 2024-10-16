@@ -428,7 +428,8 @@ result ze_queue::submit_sscp_kernel_from_code_object(
     std::string_view kernel_name, const rt::hcf_kernel_info *kernel_info,
     const rt::range<3> &num_groups, const rt::range<3> &group_size,
     unsigned local_mem_size, void **args, std::size_t *arg_sizes,
-    std::size_t num_args, const kernel_configuration &initial_config) {
+    std::size_t num_args, const kernel_configuration &initial_config,
+    ext::performance_tool_api& perf_api) {
 
 #ifdef HIPSYCL_WITH_SSCP_COMPILER
 

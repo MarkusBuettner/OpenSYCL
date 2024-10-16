@@ -236,7 +236,7 @@ inline void parallel_for_workgroup(Function f,
 {
   static_assert(Dim > 0 && Dim <= 3, "Only dimensions 1,2,3 are supported");
 
-  parallel_invocation<KernelNameTraits>([=, &perf_api_guard](){
+  parallel_invocation([=, &perf_api_guard](){
     perf_api_guard.omp_thread_start(typeid(KernelNameTraits));
     sycl::detail::host_local_memory::request_from_threadprivate_pool(
         num_local_mem_bytes);
@@ -262,7 +262,7 @@ inline void parallel_region(Function f,
   static_assert(dimensions > 0 && dimensions <= 3,
                 "Only dimensions 1,2,3 are supported");
 
-  parallel_invocation<KernelNameTraits>([=]() {
+  parallel_invocation([=]() {
     sycl::detail::host_local_memory::request_from_threadprivate_pool(
         num_local_mem_bytes);
 
