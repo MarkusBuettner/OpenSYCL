@@ -522,6 +522,67 @@ HIPSYCL_BUILTIN T __acpp_clamp(T x, T minval, T maxval) noexcept {
 }
 
 template<class T, std::enable_if_t<std::is_integral_v<T>,int> = 0>
+inline T fallback_ctz(T x) noexcept {
+
+  if(x==0){return sizeof(T)*CHAR_BIT;}
+  std::bitset<sizeof(T)*CHAR_BIT> bset(x);
+  int idx = 0;
+  while(!bset[idx]){idx++;}
+  return idx;
+
+}
+
+template <class T,
+          std::enable_if_t<
+              (std::is_same_v<T, unsigned int> || std::is_same_v<T, int> ||
+               std::is_same_v<T, unsigned short> || std::is_same_v<T, short> ||
+               std::is_same_v<T, unsigned char> ||
+               std::is_same_v<T, signed char> || std::is_same_v<T, char>),
+              int> = 0>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+
+  #if __has_builtin(__builtin_ctz)
+    // builtin_ctz(0) is UB on some arch
+    if(x==0){return sizeof(T)*CHAR_BIT;}
+
+    //we convert to the unsigned type to avoid the typecast creating 
+    //additional ones in front of the value if x is negative
+    using Usigned = typename std::make_unsigned<T>::type; 
+    return __builtin_ctz(static_cast<Usigned>(x));
+  #else
+    return fallback_ctz(x);
+  #endif
+}
+
+template <class T, std::enable_if_t<(std::is_same_v<T, unsigned long> ||
+                                     std::is_same_v<T, long>),
+                                    int> = 0>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+  #if __has_builtin(__builtin_ctzl)
+    // builtin_ctzl(0) is UB on some arch
+    if(x==0){return sizeof(T)*CHAR_BIT;}
+
+    return __builtin_ctzl(static_cast<unsigned long>(x));
+  #else
+    return fallback_ctz(x);
+  #endif
+}
+
+template <class T, std::enable_if_t<(std::is_same_v<T, unsigned long long> ||
+                                     std::is_same_v<T, long long>),
+                                    int> = 0>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+  #if __has_builtin(__builtin_ctzll)
+    // builtin_ctzll(0) is UB on some arch
+    if(x==0){return sizeof(T)*CHAR_BIT;}
+
+    return __builtin_ctzll(static_cast<unsigned long long>(x));
+  #else
+    return fallback_ctz(x);
+  #endif
+}
+
+template<class T, std::enable_if_t<std::is_integral_v<T>,int> = 0>
 inline T fallback_clz(T x) noexcept {
 
   if(x==0){return sizeof(T)*CHAR_BIT;}

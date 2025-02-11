@@ -21,12 +21,24 @@ HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_mul24_u32(__acpp_uint32 a, __acpp
   return __spirv_ocl_u_mul24(a, b);
 }
 
+__acpp_uint32 __spirv_ocl_ctz(__acpp_uint32 a);
+__acpp_uint64 __spirv_ocl_ctz(__acpp_uint64 a);
 
-__acpp_int32 __spirv_ocl_clz(__acpp_int32 a);
-__acpp_int64 __spirv_ocl_clz(__acpp_int64 a);
+HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_ctz_u32(__acpp_uint32 a){
+  return __spirv_ocl_ctz(a);
+}
+HIPSYCL_SSCP_BUILTIN __acpp_uint64 __acpp_sscp_ctz_u64(__acpp_uint64 a){
+  return __spirv_ocl_ctz(a);
+}
+HIPSYCL_SSCP_BUILTIN __acpp_uint8 __acpp_sscp_ctz_u8(__acpp_uint8 a){
+  return a ? __acpp_sscp_ctz_u32(a) : 8;
+}
+HIPSYCL_SSCP_BUILTIN __acpp_uint16 __acpp_sscp_ctz_u16(__acpp_uint16 a){
+  return a ? __acpp_sscp_ctz_u32(a) : 16;
+}
+
 __acpp_uint32 __spirv_ocl_clz(__acpp_uint32 a);
 __acpp_uint64 __spirv_ocl_clz(__acpp_uint64 a);
-
 
 HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_clz_u32(__acpp_uint32 a){
   return __spirv_ocl_clz(a);

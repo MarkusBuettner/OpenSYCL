@@ -379,6 +379,38 @@ template <class T,
           std::enable_if_t<
               (std::is_integral_v<T> && sizeof(T) == 1),
               int> = 0>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+  return __acpp_sscp_ctz_u8(static_cast<__acpp_uint8>(x));
+}
+
+template <class T,
+          std::enable_if_t<
+              (std::is_integral_v<T> && sizeof(T) == 2),
+              int> = 0>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+  return __acpp_sscp_ctz_u16(static_cast<__acpp_uint16>(x));
+}
+
+template <class T,
+          std::enable_if_t<
+              (std::is_integral_v<T> && sizeof(T) == 4),
+              int> = 0>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+  return __acpp_sscp_ctz_u32(static_cast<__acpp_uint32>(x));
+}
+
+template <class T,
+          std::enable_if_t<
+              (std::is_integral_v<T> && sizeof(T) == 8),
+              int> = 0>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+  return __acpp_sscp_ctz_u64(static_cast<__acpp_uint64>(x));
+}
+
+template <class T,
+          std::enable_if_t<
+              (std::is_integral_v<T> && sizeof(T) == 1),
+              int> = 0>
 HIPSYCL_BUILTIN T __acpp_clz(T x) noexcept {
   return __acpp_sscp_clz_u8(static_cast<__acpp_uint8>(x));
 }

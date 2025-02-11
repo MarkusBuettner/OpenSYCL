@@ -354,10 +354,10 @@ T __acpp_reduce_over_group(sub_group g, T x, BinaryOperation binary_op) {
 
 // exclusive_scan
 namespace detail { // until scoped-parallelism can be detected
-template<typename Group, typename V, typename T, typename BinaryOperation,
+template<typename Group, typename InPtr, typename OutPtr, typename T, typename BinaryOperation,
           std::enable_if_t<is_group_v<std::decay_t<Group>>, bool> = true>
 ACPP_KERNEL_TARGET
-T *__acpp_leader_exclusive_scan(Group g, V *first, V *last, T *result, T init,
+OutPtr __acpp_leader_exclusive_scan(Group g, InPtr first, InPtr last, OutPtr result, T init,
                                    BinaryOperation binary_op) {
 
   if (g.leader()) {
@@ -370,12 +370,13 @@ T *__acpp_leader_exclusive_scan(Group g, V *first, V *last, T *result, T init,
   return result;
 }
 
-template<typename Group, typename V, typename T, typename BinaryOperation,
+template<typename Group, typename InPtr, typename OutPtr, typename BinaryOperation,
           std::enable_if_t<is_group_v<std::decay_t<Group>>, bool> = true>
 ACPP_KERNEL_TARGET
-T *__acpp_leader_exclusive_scan(Group g, V *first, V *last, T *result,
+OutPtr __acpp_leader_exclusive_scan(Group g, InPtr first, InPtr last, OutPtr result,
                                    BinaryOperation binary_op) {
-  return __acpp_leader_exclusive_scan(g, first, last, result, T{},
+  using value_type = std::remove_reference_t<decltype(*result)>;
+  return __acpp_leader_exclusive_scan(g, first, last, result, value_type{},
                                          binary_op);
 }
 }
@@ -397,8 +398,9 @@ template <typename Group, typename InPtr, typename OutPtr,
 ACPP_KERNEL_TARGET OutPtr
 __acpp_joint_exclusive_scan(Group g, InPtr first, InPtr last, OutPtr result,
                                BinaryOperation binary_op) {
+  using value_type = std::remove_reference_t<decltype(*result)>;
   return host_builtins::__acpp_joint_exclusive_scan(
-      g, first, last, result, typename std::remove_pointer_t<InPtr>{},
+      g, first, last, result, value_type{},
       binary_op);
 }
 
@@ -440,10 +442,10 @@ __acpp_exclusive_scan_over_group(Group g, T x, BinaryOperation binary_op) {
 
 // inclusive_scan
 namespace detail { // until scoped-parallelism can be detected
-template <typename Group, typename V, typename T, typename BinaryOperation,
+template <typename Group, typename InPtr, typename OutPtr, typename T, typename BinaryOperation,
           std::enable_if_t<is_group_v<std::decay_t<Group>>, bool> = true>
-ACPP_KERNEL_TARGET T *
-__acpp_leader_inclusive_scan(Group g, V *first, V *last, T *result,
+ACPP_KERNEL_TARGET OutPtr
+__acpp_leader_inclusive_scan(Group g, InPtr first, InPtr last, OutPtr result,
                                 BinaryOperation binary_op, T init) {
   if (first == last)
     return result;
@@ -458,12 +460,13 @@ __acpp_leader_inclusive_scan(Group g, V *first, V *last, T *result,
   return result;
 }
 
-template <typename Group, typename V, typename T, typename BinaryOperation,
+template <typename Group, typename InPtr, typename OutPtr, typename BinaryOperation,
           std::enable_if_t<is_group_v<std::decay_t<Group>>, bool> = true>
-ACPP_KERNEL_TARGET T *
-__acpp_leader_inclusive_scan(Group g, V *first, V *last, T *result,
+ACPP_KERNEL_TARGET OutPtr
+__acpp_leader_inclusive_scan(Group g, InPtr first, InPtr last, OutPtr result,
                                 BinaryOperation binary_op) {
-  return __acpp_leader_inclusive_scan(g, first, last, result, binary_op, T{});
+  using value_type = std::remove_reference_t<decltype(*result)>;
+  return __acpp_leader_inclusive_scan(g, first, last, result, binary_op, value_type{});
 }
 }
 
@@ -484,9 +487,10 @@ template <typename Group, typename InPtr, typename OutPtr,
 ACPP_KERNEL_TARGET OutPtr
 __acpp_joint_inclusive_scan(Group g, InPtr first, InPtr last, OutPtr result,
                                BinaryOperation binary_op) {
+  using value_type = std::remove_reference_t<decltype(*result)>;
   return __acpp_joint_inclusive_scan(
       g, first, last, result, binary_op,
-      typename std::remove_pointer_t<InPtr>{});
+      value_type{});
 }
 template <int Dim, typename T, typename BinaryOperation>
 ACPP_KERNEL_TARGET

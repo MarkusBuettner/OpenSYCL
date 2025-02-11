@@ -25,6 +25,37 @@ HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_mul24_u32(__acpp_uint32 a, __acpp
   return a * b;
 }
 
+HIPSYCL_SSCP_BUILTIN __acpp_uint8 __acpp_sscp_ctz_u8(__acpp_uint8 a){
+  // builtin_ctz(0) is UB on some arch
+  if (a == 0) {
+    return CHAR_BIT;
+  }
+
+  return __builtin_ctz(a);
+}
+HIPSYCL_SSCP_BUILTIN __acpp_uint16 __acpp_sscp_ctz_u16(__acpp_uint16 a){
+  // builtin_ctz(0) is UB on some arch
+  if (a == 0) {
+    return CHAR_BIT*sizeof(__acpp_uint16);
+  }
+
+  return __builtin_ctz(a);
+}
+HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_ctz_u32(__acpp_uint32 a){
+  // builtin_ctz(0) is UB on some arch
+  if (a == 0) {
+    return CHAR_BIT*sizeof(__acpp_uint32);
+  }
+  return __builtin_ctz(a);
+}	
+HIPSYCL_SSCP_BUILTIN __acpp_uint64 __acpp_sscp_ctz_u64(__acpp_uint64 a){
+  // builtin_ctz(0) is UB on some arch
+  if (a == 0) {
+    return CHAR_BIT*sizeof(__acpp_uint64);
+  }
+  return __builtin_ctzll(a);
+}
+
 HIPSYCL_SSCP_BUILTIN __acpp_uint8 __acpp_sscp_clz_u8(__acpp_uint8 a){
   // builtin_clz(0) is UB on some arch
   if (a == 0) {

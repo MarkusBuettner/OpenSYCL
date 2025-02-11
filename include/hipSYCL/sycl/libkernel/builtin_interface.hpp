@@ -509,6 +509,11 @@ HIPSYCL_BUILTIN T __acpp_clamp(T x, T minval, T maxval) noexcept {
 }
 
 template<class T>
+HIPSYCL_BUILTIN T __acpp_ctz(T x) noexcept {
+  HIPSYCL_RETURN_DISPATCH_BUILTIN(__acpp_ctz, x);
+}
+
+template<class T>
 HIPSYCL_BUILTIN T __acpp_clz(T x) noexcept {
   HIPSYCL_RETURN_DISPATCH_BUILTIN(__acpp_clz, x);
 }

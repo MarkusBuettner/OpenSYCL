@@ -22,7 +22,18 @@ HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_mul24_u32(__acpp_uint32 a, __acpp
   return __nv_umul24(a, b);
 }
 
-
+HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_ctz_u32(__acpp_uint32 a){
+  return __nv_clz(__nv_brev(a));
+}	
+HIPSYCL_SSCP_BUILTIN __acpp_uint64 __acpp_sscp_ctz_u64(__acpp_uint64 a){
+  return __nv_clzll(__nv_brevll(a));
+}
+HIPSYCL_SSCP_BUILTIN __acpp_uint8 __acpp_sscp_ctz_u8(__acpp_uint8 a){
+  return a ? __acpp_sscp_ctz_u32(a) : 8;
+}	
+HIPSYCL_SSCP_BUILTIN __acpp_uint16 __acpp_sscp_ctz_u16(__acpp_uint16 a){
+  return a ? __acpp_sscp_ctz_u32(a) : 16;
+}
 
 HIPSYCL_SSCP_BUILTIN __acpp_uint32 __acpp_sscp_clz_u32(__acpp_uint32 a){
   return __nv_clz(a);

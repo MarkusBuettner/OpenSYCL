@@ -365,7 +365,7 @@ __device__ OutPtr __acpp_joint_inclusive_scan(Group g, InPtr first,
                                                  InPtr last, OutPtr result,
                                                  BinaryOperation binary_op,
                                                  T init) {
-  using OutT = std::remove_pointer_t<OutPtr>;
+  using OutT = std::remove_reference_t<decltype(*result)>;
 
   auto         lid          = g.get_local_linear_id();
   auto         wid          = lid / __acpp_warp_size;
@@ -401,7 +401,7 @@ template <typename Group, typename InPtr, typename OutPtr,
 __device__ OutPtr __acpp_joint_inclusive_scan(Group g, InPtr first,
                                                  InPtr last, OutPtr result,
                                                  BinaryOperation binary_op) {
-  using OutT = std::remove_pointer_t<OutPtr>;
+  using OutT = std::remove_reference_t<decltype(*result)>;
 
   auto         lid          = g.get_local_linear_id();
   auto         wid          = lid / __acpp_warp_size;
@@ -518,8 +518,9 @@ template <typename Group, typename InPtr, typename OutPtr,
 __device__ OutPtr __acpp_joint_exclusive_scan(Group g, InPtr first,
                                                  InPtr last, OutPtr result,
                                                  BinaryOperation binary_op) {
+  using OutT = std::remove_reference_t<decltype(*result)>;
   return __acpp_joint_exclusive_scan(
-      g, first, last, result, typename std::remove_pointer_t<OutPtr>{},
+      g, first, last, result, OutT{},
       binary_op);
 }
 

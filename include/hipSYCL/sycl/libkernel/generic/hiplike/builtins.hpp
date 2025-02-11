@@ -399,6 +399,42 @@ HIPSYCL_HIPLIKE_BUILTIN T __acpp_clamp(T x, T minval, T maxval) noexcept {
     hiplike_builtins::__acpp_max(x, minval), maxval);
 }
 
+template <class T,
+          std::enable_if_t<
+              (std::is_integral_v<T> && sizeof(T) < 4),
+              int> = 0>
+HIPSYCL_HIPLIKE_BUILTIN T __acpp_ctz(T x) noexcept {
+
+  //we convert to the unsigned type to avoid the typecast creating 
+  //additional ones in front of the value if x is negative
+  using Usigned = typename std::make_unsigned<T>::type;
+
+  constexpr T size = CHAR_BIT*sizeof(Usigned);
+
+  return x ? __clz(static_cast<__acpp_int32>(__brev(static_cast<Usigned>(x)))) : size;
+  
+}
+
+template <class T,
+          std::enable_if_t<
+              (std::is_integral_v<T> && sizeof(T) == 4),
+              int> = 0>
+HIPSYCL_HIPLIKE_BUILTIN T __acpp_ctz(T x) noexcept {
+
+  return __clz(static_cast<__acpp_int32>(__brev(static_cast<__acpp_uint32>(x))));
+  
+}
+
+template <class T,
+          std::enable_if_t<
+              (std::is_integral_v<T> && sizeof(T) == 8),
+              int> = 0>
+HIPSYCL_HIPLIKE_BUILTIN T __acpp_ctz(T x) noexcept {
+
+  return __clzll(static_cast<__acpp_int64>(__brevll(static_cast<__acpp_uint64>(x))));
+
+}
+
 
 template <class T,
           std::enable_if_t<

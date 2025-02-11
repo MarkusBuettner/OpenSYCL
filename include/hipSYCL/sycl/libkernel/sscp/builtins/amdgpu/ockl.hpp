@@ -23,15 +23,15 @@ extern "C" {
 #define SSHARP __amdgpu_constant __acpp_uint32 *
 #define TSHARP __amdgpu_constant __acpp_uint32 *
 
-__acpp_uint8 __ockl_clz_u8(__acpp_uint8);
-__acpp_uint16 __ockl_clz_u16(__acpp_uint16); 	
-__acpp_uint32 __ockl_clz_u32(__acpp_uint32); 	
-__acpp_uint64 __ockl_clz_u64(__acpp_uint64); 	
-
 __acpp_uint8 __ockl_ctz_u8(__acpp_uint8);
 __acpp_uint16 __ockl_ctz_u16(__acpp_uint16); 	
 __acpp_uint32 __ockl_ctz_u32(__acpp_uint32); 	
 __acpp_uint64 __ockl_ctz_u64(__acpp_uint64); 	
+
+__acpp_uint8 __ockl_clz_u8(__acpp_uint8);
+__acpp_uint16 __ockl_clz_u16(__acpp_uint16); 	
+__acpp_uint32 __ockl_clz_u32(__acpp_uint32); 	
+__acpp_uint64 __ockl_clz_u64(__acpp_uint64); 	
 
 __acpp_uint32 __ockl_popcount_u32(__acpp_uint32);
 __acpp_uint64 __ockl_popcount_u64(__acpp_uint64); 	

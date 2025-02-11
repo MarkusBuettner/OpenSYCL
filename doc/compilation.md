@@ -37,9 +37,7 @@ The generic SSCP flow can potentially provide very fast compile times, very good
 
 ### Implementation status
 
-The SSCP flow is supported for all backends.
-
-Some features (e.g. SYCL 2020 reductions or group algorithms) are not yet implemented.
+The SSCP flow is supported for all backends. The set of supported features is a strict superset of the features of other compilation flows. The only exception to this is the ability to mix-and-match SYCL with other backend-specific programming models.
 
 ### How it works
 
@@ -115,7 +113,7 @@ approach is employed to achieve good performance and functional correctness (_Ka
 A deep dive into how the implementation works and why this approach was chosen
 can be found in Joachim Meyer's [master thesis](https://joameyer.de/hipsycl/Thesis_JoachimMeyer.pdf).
 
-For more details, see the [installation instructions](installing.md) and the documentation [using AdaptiveCpp](using-hipsycl.md).
+For more details, see the [installation instructions](installing.md) and the documentation [using AdaptiveCpp](using-acpp.md).
 
 ## acpp compilation driver
 

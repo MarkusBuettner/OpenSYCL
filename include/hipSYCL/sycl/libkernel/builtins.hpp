@@ -792,11 +792,12 @@ HIPSYCL_BUILTIN VecType clamp(const VecType &a, ScalarType minval,
                VecType{static_cast<element_type>(maxval)});
 }
 
+HIPSYCL_DEFINE_BUILTIN(ctz, HIPSYCL_BUILTIN_OVERLOAD_SET_GENINTEGER,
+                       HIPSYCL_BUILTIN_GENERATOR_UNARY_T)
+
 HIPSYCL_DEFINE_BUILTIN(clz, HIPSYCL_BUILTIN_OVERLOAD_SET_GENINTEGER,
                        HIPSYCL_BUILTIN_GENERATOR_UNARY_T)
 
-// TODO clz
-// TODO ctz
 // TODO mad_hi
 // TODO mad_sat
 

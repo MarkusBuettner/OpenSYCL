@@ -264,9 +264,9 @@ public:
   }
 
   friend bool operator==(const group<Dimensions>& lhs, const group<Dimensions>& rhs){
-    return lhs._group_id == rhs._group_id &&
-           lhs._local_range == rhs._local_range &&
-           lhs._num_groups == rhs._num_groups;
+    return lhs.get_group_id() == rhs.get_group_id() &&
+           lhs.get_local_range() == rhs.get_local_range() &&
+           lhs.get_group_range() == rhs.get_group_range();
   }
 
   friend bool operator!=(const group<Dimensions>& lhs, const group<Dimensions>& rhs){
